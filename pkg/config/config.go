@@ -85,7 +85,7 @@ func DefaultConfig() *Config {
 			TopP:          0.8,
 		},
 		Tools: ToolsConfig{
-			ConfirmTools:      []string{"shell", "write_file"},
+			ConfirmTools:      []string{"shell", "write_file", "patch_file"},
 			AllowShell:        true,
 			MaxToolOutputSize: 4096,
 			MaxSearchResults:  5,

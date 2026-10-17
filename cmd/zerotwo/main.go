@@ -315,6 +315,7 @@ func buildRegistry(cfg *config.Config, mem *agent.MemoryStore) *tools.Registry {
 	rf.SetWorkspace(cfg.Agent.Workspace)
 	r.Register(rf)
 	r.Register(tools.NewWriteFileTool())
+	r.Register(tools.NewPatchFileTool())
 	r.Register(tools.NewListDirTool(maxOut))
 	r.Register(tools.NewSystemStatusTool(maxOut))
 

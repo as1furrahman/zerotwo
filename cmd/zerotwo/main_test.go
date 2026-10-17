@@ -100,7 +100,7 @@ func TestBuildRegistryTools(t *testing.T) {
 	registry := buildRegistry(cfg, mem)
 	providerTools := registry.AsProviderTools()
 
-	expected := []string{"read_file", "write_file", "list_dir", "get_system_status", "shell", "web_fetch", "http_request", "save_memory", "patch_memory"}
+	expected := []string{"read_file", "write_file", "patch_file", "list_dir", "get_system_status", "shell", "web_fetch", "http_request", "save_memory", "patch_memory"}
 	for _, exp := range expected {
 		var found bool
 		for _, pt := range providerTools {

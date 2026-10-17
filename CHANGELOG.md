@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.2.0] - 2026-10-18
+
+### Added
+- **In-Place Refactoring Engine (`patch_file`)**:
+  - Added new `patch_file` tool (`pkg/tools/files.go`) enabling search-and-replace text modifications without full-file rewrites.
+  - Strict ambiguity validation: requires exactly 1 match by default, failing closed if ambiguous unless `allow_multiple` is explicitly enabled.
+  - Full default-deny security integration: evaluates symlinks, blocks sensitive paths (`~/.ssh`, credentials), protects system targets (`MEMORY.md`, `sessions/*.json`), and marks files tainted if untrusted content is introduced.
+  - Added to default `confirm_tools` in `pkg/config/config.go` and `config.example.json`.
+- **Parallel Multi-Tool Execution**:
+  - Added concurrent execution in `pkg/agent/loop.go` for independent read-only tool calls (`read_file`, `list_dir`, `get_system_status`, `web_fetch`, `web_search`) using bounded goroutines (`sync.WaitGroup`).
+  - Terminal safety invariant: all user approval prompts on `/dev/tty` are strictly evaluated sequentially before background workers launch.
+  - Causality & dependency safety: mutating tools (`write_file`, `patch_file`, `shell`, `save_memory`, `patch_memory`) execute in strict sequential order.
+  - Tool result ordering invariant: results are mapped back to their exact original `tc.ID` order, guaranteeing full compatibility with OpenAI/Groq SSE APIs.
+
+---
+
 ## [0.1.0] - 2026-10-18
 
 ### Initial Production Release

@@ -405,6 +405,12 @@ func TestAgentShellCleanTurnDefaultConfirmTools(t *testing.T) {
 		t.Errorf("expected denial when user types 'n' for write_file in clean turn")
 	}
 
+	// Clean turn: patch_file prompts, user types "n" -> denied
+	loopNoYes.SetConfirmIO(strings.NewReader("n\n"), io.Discard)
+	if err := loopNoYes.checkToolConfirmation(context.Background(), "patch_file", `{"path":"a.txt","search":"a","replace":"b"}`, false); err == nil {
+		t.Errorf("expected denial when user types 'n' for patch_file in clean turn")
+	}
+
 	// autoYes loop
 	loopYes := NewLoop(cfg, nil, registry, nil, store, true)
 
@@ -418,7 +424,12 @@ func TestAgentShellCleanTurnDefaultConfirmTools(t *testing.T) {
 		t.Errorf("expected autoYes to approve write_file in clean turn: %v", err)
 	}
 
-	// TAINTED turn: autoYes CANNOT approve shell or write_file!
+	// Clean turn: patch_file auto-approved with --yes
+	if err := loopYes.checkToolConfirmation(context.Background(), "patch_file", `{"path":"a.txt","search":"a","replace":"b"}`, false); err != nil {
+		t.Errorf("expected autoYes to approve patch_file in clean turn: %v", err)
+	}
+
+	// TAINTED turn: autoYes CANNOT approve shell, write_file, or patch_file!
 	loopYes.SetConfirmIO(strings.NewReader("n\n"), io.Discard)
 	if err := loopYes.checkToolConfirmation(context.Background(), "shell", `{"command":"ls -l"}`, true); err == nil {
 		t.Errorf("autoYes must NOT bypass confirmation when context is tainted!")
@@ -426,6 +437,10 @@ func TestAgentShellCleanTurnDefaultConfirmTools(t *testing.T) {
 	loopYes.SetConfirmIO(strings.NewReader("n\n"), io.Discard)
 	if err := loopYes.checkToolConfirmation(context.Background(), "write_file", `{"path":"a.txt"}`, true); err == nil {
 		t.Errorf("autoYes must NOT bypass write_file confirmation when context is tainted!")
+	}
+	loopYes.SetConfirmIO(strings.NewReader("n\n"), io.Discard)
+	if err := loopYes.checkToolConfirmation(context.Background(), "patch_file", `{"path":"a.txt","search":"a","replace":"b"}`, true); err == nil {
+		t.Errorf("autoYes must NOT bypass patch_file confirmation when context is tainted!")
 	}
 }
 
@@ -1766,3 +1781,226 @@ func TestTrimContextWhenSystemPromptPlusMemoryExceedsBudget(t *testing.T) {
 	t.Logf("PASS: Oversized system prompt truncated successfully: sysTokens=%d, userTokens=%d, total=%d <= budget=%d",
 		sysTokens, userTokens, totalTokens, effectiveBudget)
 }
+
+func TestConcurrentMultiToolExecution(t *testing.T) {
+	tmpDir := t.TempDir()
+	file1 := filepath.Join(tmpDir, "file1.txt")
+	file2 := filepath.Join(tmpDir, "file2.txt")
+	file3 := filepath.Join(tmpDir, "file3.txt")
+	_ = os.WriteFile(file1, []byte("content 1"), 0644)
+	_ = os.WriteFile(file2, []byte("content 2"), 0644)
+	_ = os.WriteFile(file3, []byte("content 3"), 0644)
+
+	var callCount int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		current := atomic.AddInt32(&callCount, 1)
+		w.Header().Set("Content-Type", "application/json")
+		if current == 1 {
+			// Iteration 0: Emit 3 concurrent read_file calls
+			resp := provider.CompletionResponse{
+				Choices: []provider.Choice{
+					{
+						Index: 0,
+						Message: provider.Message{
+							Role: "assistant",
+							ToolCalls: []provider.ToolCall{
+								{
+									Index: 0,
+									ID:    "call_read_1",
+									Type:  "function",
+									Function: provider.FunctionCall{
+										Name:      "read_file",
+										Arguments: fmt.Sprintf(`{"path":%q}`, file1),
+									},
+								},
+								{
+									Index: 1,
+									ID:    "call_read_2",
+									Type:  "function",
+									Function: provider.FunctionCall{
+										Name:      "read_file",
+										Arguments: fmt.Sprintf(`{"path":%q}`, file2),
+									},
+								},
+								{
+									Index: 2,
+									ID:    "call_read_3",
+									Type:  "function",
+									Function: provider.FunctionCall{
+										Name:      "read_file",
+										Arguments: fmt.Sprintf(`{"path":%q}`, file3),
+									},
+								},
+							},
+						},
+						FinishReason: "tool_calls",
+					},
+				},
+			}
+			_ = json.NewEncoder(w).Encode(resp)
+			return
+		}
+
+		// Iteration 1: Return final response
+		resp := provider.CompletionResponse{
+			Choices: []provider.Choice{
+				{
+					Index: 0,
+					Message: provider.Message{
+						Role:    "assistant",
+						Content: "All 3 files read concurrently!",
+					},
+					FinishReason: "stop",
+				},
+			},
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	cfg := config.DefaultConfig()
+	cfg.Agent.Workspace = tmpDir
+	cfg.Provider.BaseURL = server.URL
+	cfg.Provider.Stream = false
+	cfg.Tools.ConfirmTools = []string{}
+	cfg.Resolve()
+
+	client, err := provider.NewClient(cfg)
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+
+	store := NewMemoryStore(tmpDir)
+	sessions := session.NewManager(tmpDir)
+	registry := tools.NewRegistry()
+	registry.Register(tools.NewReadFileTool(1024))
+
+	loop := NewLoop(cfg, client, registry, sessions, store, false)
+	sess := &session.Session{ID: "concurrent-test-sess"}
+
+	res, err := loop.Run(context.Background(), "read all 3 files", sess, nil)
+	if err != nil {
+		t.Fatalf("loop.Run failed: %v", err)
+	}
+	if res != "All 3 files read concurrently!" {
+		t.Errorf("unexpected agent response: %s", res)
+	}
+
+	// Verify exact order of tool responses matches call IDs
+	var toolResults []provider.Message
+	for _, m := range sess.Messages {
+		if m.Role == "tool" {
+			toolResults = append(toolResults, m)
+		}
+	}
+
+	if len(toolResults) != 3 {
+		t.Fatalf("expected 3 tool results, got %d", len(toolResults))
+	}
+	expectedIDs := []string{"call_read_1", "call_read_2", "call_read_3"}
+	expectedContents := []string{"content 1", "content 2", "content 3"}
+	for i := 0; i < 3; i++ {
+		if toolResults[i].ToolCallID != expectedIDs[i] {
+			t.Errorf("tool result %d: expected ID %q, got %q", i, expectedIDs[i], toolResults[i].ToolCallID)
+		}
+		if toolResults[i].Content != expectedContents[i] {
+			t.Errorf("tool result %d: expected content %q, got %q", i, expectedContents[i], toolResults[i].Content)
+		}
+	}
+}
+
+func TestPatchFileExecutionInAgentLoop(t *testing.T) {
+	tmpDir := t.TempDir()
+	codeFile := filepath.Join(tmpDir, "code.go")
+	_ = os.WriteFile(codeFile, []byte("package main\n\nfunc Version() string {\n\treturn \"1.0\"\n}\n"), 0644)
+
+	var callCount int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		current := atomic.AddInt32(&callCount, 1)
+		w.Header().Set("Content-Type", "application/json")
+		if current == 1 {
+			patchArgs, _ := json.Marshal(map[string]interface{}{
+				"path":    codeFile,
+				"search":  `return "1.0"`,
+				"replace": `return "2.0"`,
+			})
+			resp := provider.CompletionResponse{
+				Choices: []provider.Choice{
+					{
+						Index: 0,
+						Message: provider.Message{
+							Role: "assistant",
+							ToolCalls: []provider.ToolCall{
+								{
+									Index: 0,
+									ID:    "call_patch_1",
+									Type:  "function",
+									Function: provider.FunctionCall{
+										Name:      "patch_file",
+										Arguments: string(patchArgs),
+									},
+								},
+							},
+						},
+						FinishReason: "tool_calls",
+					},
+				},
+			}
+			_ = json.NewEncoder(w).Encode(resp)
+			return
+		}
+
+		resp := provider.CompletionResponse{
+			Choices: []provider.Choice{
+				{
+					Index: 0,
+					Message: provider.Message{
+						Role:    "assistant",
+						Content: "Code patched to v2.0 successfully!",
+					},
+					FinishReason: "stop",
+				},
+			},
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	cfg := config.DefaultConfig()
+	cfg.Agent.Workspace = tmpDir
+	cfg.Provider.BaseURL = server.URL
+	cfg.Provider.Stream = false
+	cfg.Tools.ConfirmTools = []string{} // allow patch_file in test
+	cfg.Resolve()
+
+	client, err := provider.NewClient(cfg)
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+
+	store := NewMemoryStore(tmpDir)
+	sessions := session.NewManager(tmpDir)
+	registry := tools.NewRegistry()
+	registry.Register(tools.NewPatchFileTool())
+
+	loop := NewLoop(cfg, client, registry, sessions, store, false)
+	sess := &session.Session{ID: "patch-test-sess"}
+
+	res, err := loop.Run(context.Background(), "patch code to 2.0", sess, nil)
+	if err != nil {
+		t.Fatalf("loop.Run failed: %v", err)
+	}
+	if res != "Code patched to v2.0 successfully!" {
+		t.Errorf("unexpected agent response: %s", res)
+	}
+
+	// Verify file on disk actually got patched
+	patchedData, err := os.ReadFile(codeFile)
+	if err != nil {
+		t.Fatalf("failed to read patched file: %v", err)
+	}
+	if !strings.Contains(string(patchedData), `return "2.0"`) || strings.Contains(string(patchedData), `return "1.0"`) {
+		t.Errorf("file was not patched properly: %s", string(patchedData))
+	}
+}
+

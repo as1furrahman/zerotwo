@@ -273,6 +273,131 @@ func (t *WriteFileTool) Run(argsJSON string) (string, error) {
 	return fmt.Sprintf("Successfully wrote %d bytes to %s", len(args.Content), args.Path), nil
 }
 
+type PatchFileTool struct{}
+
+func NewPatchFileTool() *PatchFileTool {
+	return &PatchFileTool{}
+}
+
+func (t *PatchFileTool) Name() string { return "patch_file" }
+func (t *PatchFileTool) Description() string {
+	return "Patch an existing file by searching for a specific block of text and replacing it with new text. Fails if the search string is not found or is ambiguous (unless allow_multiple is true)."
+}
+func (t *PatchFileTool) Parameters() json.RawMessage {
+	return json.RawMessage(`{
+		"type": "object",
+		"properties": {
+			"path": {"type": "string", "description": "File path to patch"},
+			"search": {"type": "string", "description": "Exact text block to find in the file"},
+			"replace": {"type": "string", "description": "Replacement text block"},
+			"allow_multiple": {"type": "boolean", "description": "If true, replace all occurrences. If false (default), require exactly one match"}
+		},
+		"required": ["path", "search", "replace"]
+	}`)
+}
+func (t *PatchFileTool) Run(argsJSON string) (string, error) {
+	var args struct {
+		Path          string `json:"path"`
+		Search        string `json:"search"`
+		Replace       string `json:"replace"`
+		AllowMultiple bool   `json:"allow_multiple"`
+	}
+	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+		return "", fmt.Errorf("invalid args: %w", err)
+	}
+	if args.Path == "" {
+		return "", fmt.Errorf("path cannot be empty")
+	}
+	if args.Search == "" {
+		return "", fmt.Errorf("search string cannot be empty")
+	}
+
+	if IsSensitivePath(args.Path) {
+		return "", fmt.Errorf("patch denied: %s matches sensitive path denylist (credentials/keys protected)", args.Path)
+	}
+
+	targetBase := strings.ToLower(filepath.Base(args.Path))
+	targetClean := strings.ToLower(filepath.ToSlash(args.Path))
+	if targetBase == "memory.md" {
+		return "", fmt.Errorf("patch denied: direct file patching to MEMORY.md is forbidden; use save_memory or patch_memory tools")
+	}
+
+	if (strings.Contains(targetClean, "/sessions/") || strings.HasPrefix(targetClean, "sessions/")) && strings.HasSuffix(targetClean, ".json") {
+		return "", fmt.Errorf("patch denied: direct file patching to session files (sessions/*.json) is forbidden")
+	}
+
+	if realPath, err := filepath.EvalSymlinks(args.Path); err == nil {
+		realBase := strings.ToLower(filepath.Base(realPath))
+		realClean := strings.ToLower(filepath.ToSlash(realPath))
+		if realBase == "memory.md" {
+			return "", fmt.Errorf("patch denied: target resolves to MEMORY.md; use save_memory or patch_memory tools")
+		}
+		if (strings.Contains(realClean, "/sessions/") || strings.HasPrefix(realClean, "sessions/")) && strings.HasSuffix(realClean, ".json") {
+			return "", fmt.Errorf("patch denied: target resolves to session file (sessions/*.json)")
+		}
+	}
+
+	dirToEval := filepath.Dir(args.Path)
+	if realDir, err := filepath.EvalSymlinks(dirToEval); err == nil {
+		canonicalTarget := filepath.Join(realDir, filepath.Base(args.Path))
+		canonicalBase := strings.ToLower(filepath.Base(canonicalTarget))
+		canonicalClean := strings.ToLower(filepath.ToSlash(canonicalTarget))
+		if canonicalBase == "memory.md" {
+			return "", fmt.Errorf("patch denied: target resolves to MEMORY.md; use save_memory or patch_memory tools")
+		}
+		if (strings.Contains(canonicalClean, "/sessions/") || strings.HasPrefix(canonicalClean, "sessions/")) && strings.HasSuffix(canonicalClean, ".json") {
+			return "", fmt.Errorf("patch denied: target resolves to session file (sessions/*.json)")
+		}
+	}
+
+	info, err := os.Stat(args.Path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("patch denied: file %s does not exist; use write_file to create new files", args.Path)
+		}
+		return "", fmt.Errorf("patch failed to stat %s: %w", args.Path, err)
+	}
+	if info.IsDir() {
+		return "", fmt.Errorf("patch denied: %s is a directory, not a file", args.Path)
+	}
+
+	data, err := os.ReadFile(args.Path)
+	if err != nil {
+		return "", fmt.Errorf("patch failed to read %s: %w", args.Path, err)
+	}
+
+	content := string(data)
+	count := strings.Count(content, args.Search)
+	if count == 0 {
+		return "", fmt.Errorf("search text not found in %s", args.Path)
+	}
+	if count > 1 && !args.AllowMultiple {
+		return "", fmt.Errorf("search text matched %d times in %s; specify more context lines to match uniquely, or set allow_multiple=true", count, args.Path)
+	}
+
+	var newContent string
+	if args.AllowMultiple {
+		newContent = strings.ReplaceAll(content, args.Search, args.Replace)
+	} else {
+		newContent = strings.Replace(content, args.Search, args.Replace, 1)
+	}
+
+	// If replacement content contains untrusted markers, mark this file path as tainted
+	if strings.Contains(args.Replace, "<<<UNTRUSTED_EXTERNAL_CONTENT") {
+		MarkFileTainted(args.Path)
+	}
+
+	mode := info.Mode().Perm()
+	if mode == 0 {
+		mode = 0644
+	}
+
+	if err := config.AtomicWriteFile(args.Path, []byte(newContent), mode); err != nil {
+		return "", fmt.Errorf("patching file %s: %w", args.Path, err)
+	}
+	return fmt.Sprintf("Successfully patched %s (%d occurrence(s) replaced, %d bytes)", args.Path, count, len(newContent)), nil
+}
+
 type ListDirTool struct {
 	maxOutput int
 }

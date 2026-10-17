@@ -29,6 +29,8 @@ Engineered specifically for low-resource environments—from modern x86/ARM64 se
 
 - ⚡ **Zero External Dependencies**: Standard library Go only (`go.mod` has 0 third-party packages).
 - 🪶 **Ultra-Low Resource Footprint**: < 7MB static binary, < 12MB RSS RAM, < 15ms startup time.
+- 🚀 **Parallel Multi-Tool Dispatch**: Concurrent goroutine execution for read-only tools with strict sequential safety for mutations.
+- 🔧 **In-Place Refactoring Engine**: Built-in `patch_file` search-and-replace tool for localized diffs without hallucination.
 - 🛡️ **Default-Deny Security**: Centralized pre-dispatch authorization gatekeeper for all tool calls and commands.
 - 🖥️ **Natural Language Shell Assistant**: Instant `-e` mode with intelligent risk classification.
 - 🧠 **Persistent Context & Memory**: Adaptive `MEMORY.md` with interactive interview learning (`-learn`) and LAN-aware privacy redactions.
@@ -125,6 +127,26 @@ zerotwo -memory-preview
 # Zero-network execution test
 zerotwo -dry-run -m "Test prompt"
 ```
+
+---
+
+## Built-in Autonomous Tools
+
+ZeroTwo ships with standard library tools governed by default-deny security:
+
+| Tool | Category | Execution Mode | Description |
+| :--- | :--- | :--- | :--- |
+| **`read_file`** | Local Read | **Concurrent** | Inspect file contents (workspace-aware, sensitive path filtered). |
+| **`patch_file`** | Local Mutating | Sequential | In-place search-and-replace refactoring with exact ambiguity checks. |
+| **`write_file`** | Local Mutating | Sequential | Atomic full-file writer with path validation and taint tagging. |
+| **`list_dir`** | Local Read | **Concurrent** | View directory structures, sizes, and file types. |
+| **`get_system_status`** | Local Read | **Concurrent** | Read Linux CPU load, memory, thermals, power, and storage. |
+| **`shell`** | Command Exec | Sequential | Subprocess execution bounded by ring buffers and safety classifier. |
+| **`web_fetch`** | Remote Egress | **Concurrent** | Fetch remote HTTP pages with strict SSRF defense and taint wrapping. |
+| **`http_request`** | Remote Egress | Sequential | Execute HTTP requests to external APIs with SSRF validation. |
+| **`web_search`** | Remote Egress | **Concurrent** | Search the web via Brave Search API with prompt injection defense. |
+| **`save_memory`** | Agent Memory | Sequential | Save persistent user profile and preferences to `MEMORY.md`. |
+| **`patch_memory`** | Agent Memory | Sequential | In-place section patching for persistent agent memory. |
 
 ---
 

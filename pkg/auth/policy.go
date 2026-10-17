@@ -78,6 +78,8 @@ func (p *Policy) Authorize(req AuthorizationRequest) (Decision, ApprovalDetails,
 		return p.authorizeMemoryMutation(req, name, args)
 	case "write_file":
 		return p.authorizeFileWrite(req, args)
+	case "patch_file":
+		return p.authorizeFilePatch(req, args)
 	case "read_file":
 		return p.authorizeFileRead(req, args)
 	case "list_dir":
@@ -462,7 +464,7 @@ func (p *Policy) authorizeFileWrite(req AuthorizationRequest, args string) (Deci
 	// but default confirm_tools includes write_file.
 	inConfirm := false
 	for _, ct := range req.ConfirmTools {
-		if ct == "write_file" {
+		if ct == "write_file" || ct == "patch_file" {
 			inConfirm = true
 			break
 		}
@@ -492,6 +494,177 @@ func (p *Policy) authorizeFileWrite(req AuthorizationRequest, args string) (Deci
 		Action:    "write_file",
 		Target:    targetPath,
 		DataScope: fmt.Sprintf("write %d bytes to %s", len(payload.Content), targetPath),
+	}, nil
+}
+
+func (p *Policy) authorizeFilePatch(req AuthorizationRequest, args string) (Decision, ApprovalDetails, error) {
+	var payload struct {
+		Path          string `json:"path"`
+		Search        string `json:"search"`
+		Replace       string `json:"replace"`
+		AllowMultiple bool   `json:"allow_multiple"`
+	}
+	if err := json.Unmarshal([]byte(args), &payload); err != nil {
+		return DecisionDeny, ApprovalDetails{
+			Category: CategoryWriteLocal,
+			Action:   "patch_file",
+			Warning:  "malformed JSON arguments for patch_file",
+		}, fmt.Errorf("malformed patch_file arguments: %w", err)
+	}
+
+	targetPath := strings.TrimSpace(payload.Path)
+	if targetPath == "" {
+		return DecisionDeny, ApprovalDetails{
+			Category: CategoryWriteLocal,
+			Action:   "patch_file",
+			Warning:  "empty file path",
+		}, fmt.Errorf("empty file path")
+	}
+
+	if tools.IsSensitivePath(targetPath) {
+		return DecisionDeny, ApprovalDetails{
+			Category: CategoryWriteLocal,
+			Action:   "patch_file",
+			Target:   targetPath,
+			Warning:  "target matches sensitive path / credentials denylist",
+		}, fmt.Errorf("patch access denied: %s matches sensitive credentials/keys denylist", targetPath)
+	}
+
+	targetBase := strings.ToLower(filepath.Base(targetPath))
+	targetClean := strings.ToLower(filepath.ToSlash(targetPath))
+	if targetBase == "memory.md" {
+		return DecisionDeny, ApprovalDetails{
+			Category: CategoryMutateMemory,
+			Action:   "patch_file",
+			Target:   targetPath,
+			Warning:  "direct file writes/patches to MEMORY.md are forbidden; use save_memory or patch_memory tools instead",
+		}, fmt.Errorf("patch access denied: direct patch to MEMORY.md is forbidden; use patch_memory")
+	}
+
+	if (strings.Contains(targetClean, "/sessions/") || strings.HasPrefix(targetClean, "sessions/")) && strings.HasSuffix(targetClean, ".json") {
+		return DecisionDeny, ApprovalDetails{
+			Category: CategoryWriteLocal,
+			Action:   "patch_file",
+			Target:   targetPath,
+			Warning:  "direct file writes/patches to session files (sessions/*.json) are forbidden; managed by session manager",
+		}, fmt.Errorf("patch access denied: direct patch to session files is forbidden")
+	}
+
+	if realPath, err := filepath.EvalSymlinks(targetPath); err == nil {
+		realBase := strings.ToLower(filepath.Base(realPath))
+		realClean := strings.ToLower(filepath.ToSlash(realPath))
+		if realBase == "memory.md" {
+			return DecisionDeny, ApprovalDetails{
+				Category: CategoryMutateMemory,
+				Action:   "patch_file",
+				Target:   targetPath,
+				Warning:  "symlink target resolves to MEMORY.md; use save_memory or patch_memory tools instead",
+			}, fmt.Errorf("patch access denied: symlink resolves to MEMORY.md")
+		}
+		if (strings.Contains(realClean, "/sessions/") || strings.HasPrefix(realClean, "sessions/")) && strings.HasSuffix(realClean, ".json") {
+			return DecisionDeny, ApprovalDetails{
+				Category: CategoryWriteLocal,
+				Action:   "patch_file",
+				Target:   targetPath,
+				Warning:  "symlink target resolves to session file (sessions/*.json)",
+			}, fmt.Errorf("patch access denied: symlink resolves to session file")
+		}
+	}
+
+	dirToEval := filepath.Dir(targetPath)
+	if realDir, err := filepath.EvalSymlinks(dirToEval); err == nil {
+		canonicalTarget := filepath.Join(realDir, filepath.Base(targetPath))
+		canonicalBase := strings.ToLower(filepath.Base(canonicalTarget))
+		canonicalClean := strings.ToLower(filepath.ToSlash(canonicalTarget))
+		if canonicalBase == "memory.md" {
+			return DecisionDeny, ApprovalDetails{
+				Category: CategoryMutateMemory,
+				Action:   "patch_file",
+				Target:   targetPath,
+				Warning:  "symlink target resolves to MEMORY.md; use save_memory or patch_memory tools instead",
+			}, fmt.Errorf("patch access denied: symlink resolves to MEMORY.md")
+		}
+		if (strings.Contains(canonicalClean, "/sessions/") || strings.HasPrefix(canonicalClean, "sessions/")) && strings.HasSuffix(canonicalClean, ".json") {
+			return DecisionDeny, ApprovalDetails{
+				Category: CategoryWriteLocal,
+				Action:   "patch_file",
+				Target:   targetPath,
+				Warning:  "symlink target resolves to session file (sessions/*.json)",
+			}, fmt.Errorf("patch access denied: symlink resolves to session file")
+		}
+	}
+
+	// Check workspace containment if configured
+	if req.Workspace != "" {
+		wsAbs, errWs := filepath.Abs(req.Workspace)
+		var pathAbs string
+		if filepath.IsAbs(targetPath) {
+			pathAbs = filepath.Clean(targetPath)
+		} else if errWs == nil {
+			pathAbs = filepath.Join(wsAbs, targetPath)
+		} else {
+			pathAbs = filepath.Clean(targetPath)
+		}
+		dirToEval := filepath.Dir(pathAbs)
+		if realDir, err := filepath.EvalSymlinks(dirToEval); err == nil {
+			pathAbs = filepath.Join(realDir, filepath.Base(pathAbs))
+		}
+		if realPath, err := filepath.EvalSymlinks(pathAbs); err == nil {
+			pathAbs = realPath
+		}
+		if errWs == nil {
+			rel, errRel := filepath.Rel(wsAbs, pathAbs)
+			if errRel != nil || strings.HasPrefix(rel, "..") {
+				return DecisionRequireApproval, ApprovalDetails{
+					Category:       CategoryWriteLocal,
+					Action:         "patch_file_outside_workspace",
+					Target:         targetPath,
+					DataScope:      fmt.Sprintf("patch file outside workspace root (%s)", req.Workspace),
+					RequiresStrong: false,
+					Warning:        "Patching file outside workspace root directory. Requires explicit user authorization.",
+				}, nil
+			}
+		}
+	}
+
+	warning := "File patch on local filesystem."
+	if req.ContextTainted {
+		warning = "SECURITY WARNING: File patch requested while context is TAINTED by untrusted external data! File will be marked tainted."
+	}
+
+	inConfirm := false
+	for _, ct := range req.ConfirmTools {
+		if ct == "patch_file" || ct == "write_file" {
+			inConfirm = true
+			break
+		}
+	}
+
+	dataScope := fmt.Sprintf("patch %s (search %d bytes, replace %d bytes)", targetPath, len(payload.Search), len(payload.Replace))
+	if req.ContextTainted || inConfirm {
+		if req.AutoYes && !req.ContextTainted {
+			return DecisionAllow, ApprovalDetails{
+				Category:  CategoryWriteLocal,
+				Action:    "patch_file",
+				Target:    targetPath,
+				DataScope: dataScope,
+			}, nil
+		}
+		return DecisionRequireApproval, ApprovalDetails{
+			Category:       CategoryWriteLocal,
+			Action:         "patch_file",
+			Target:         targetPath,
+			DataScope:      dataScope,
+			RequiresStrong: false,
+			Warning:        warning,
+		}, nil
+	}
+
+	return DecisionAllow, ApprovalDetails{
+		Category:  CategoryWriteLocal,
+		Action:    "patch_file",
+		Target:    targetPath,
+		DataScope: dataScope,
 	}, nil
 }
 

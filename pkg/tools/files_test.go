@@ -337,3 +337,142 @@ func TestWriteFileDeniesMemoryDirectWrite(t *testing.T) {
 		t.Errorf("expected error blocking direct write to MEMORY.md, got: %v", err)
 	}
 }
+
+func TestPatchFileTool(t *testing.T) {
+	tmpDir := t.TempDir()
+	targetFile := filepath.Join(tmpDir, "target.txt")
+	initialContent := "func main() {\n\tprintln(\"v1\")\n\tprintln(\"common\")\n\tprintln(\"common\")\n}\n"
+	if err := os.WriteFile(targetFile, []byte(initialContent), 0644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+
+	tool := NewPatchFileTool()
+
+	// 1. Metadata checks
+	if tool.Name() != "patch_file" {
+		t.Errorf("expected patch_file, got %s", tool.Name())
+	}
+	if tool.Description() == "" {
+		t.Errorf("description should not be empty")
+	}
+	if len(tool.Parameters()) == 0 {
+		t.Errorf("parameters should not be empty")
+	}
+
+	// 2. Successful single patch
+	args1, _ := json.Marshal(map[string]interface{}{
+		"path":    targetFile,
+		"search":  `println("v1")`,
+		"replace": `println("v2")`,
+	})
+	res, err := tool.Run(string(args1))
+	if err != nil {
+		t.Fatalf("Run failed for single patch: %v", err)
+	}
+	if !strings.Contains(res, "Successfully patched") {
+		t.Errorf("expected success message, got: %s", res)
+	}
+	updated, _ := os.ReadFile(targetFile)
+	if !strings.Contains(string(updated), `println("v2")`) || strings.Contains(string(updated), `println("v1")`) {
+		t.Errorf("file content not patched correctly: %s", string(updated))
+	}
+
+	// 3. Ambiguous match rejected when allow_multiple is false
+	argsAmbiguous, _ := json.Marshal(map[string]interface{}{
+		"path":    targetFile,
+		"search":  `println("common")`,
+		"replace": `println("uncommon")`,
+	})
+	_, err = tool.Run(string(argsAmbiguous))
+	if err == nil || !strings.Contains(err.Error(), "matched 2 times") {
+		t.Errorf("expected ambiguous match error, got: %v", err)
+	}
+
+	// 4. Multiple matches succeeded when allow_multiple is true
+	argsMulti, _ := json.Marshal(map[string]interface{}{
+		"path":           targetFile,
+		"search":         `println("common")`,
+		"replace":        `println("uncommon")`,
+		"allow_multiple": true,
+	})
+	resMulti, err := tool.Run(string(argsMulti))
+	if err != nil {
+		t.Fatalf("Run failed for multi patch: %v", err)
+	}
+	if !strings.Contains(resMulti, "2 occurrence(s) replaced") {
+		t.Errorf("expected 2 occurrences replaced, got: %s", resMulti)
+	}
+	updatedMulti, _ := os.ReadFile(targetFile)
+	if strings.Contains(string(updatedMulti), `println("common")`) {
+		t.Errorf("all occurrences should have been replaced: %s", string(updatedMulti))
+	}
+
+	// 5. Search text not found rejected
+	argsNotFound, _ := json.Marshal(map[string]interface{}{
+		"path":    targetFile,
+		"search":  `println("nonexistent")`,
+		"replace": `println("new")`,
+	})
+	_, err = tool.Run(string(argsNotFound))
+	if err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Errorf("expected not found error, got: %v", err)
+	}
+
+	// 6. Non-existent file rejected
+	argsNoFile, _ := json.Marshal(map[string]interface{}{
+		"path":    filepath.Join(tmpDir, "missing.txt"),
+		"search":  "foo",
+		"replace": "bar",
+	})
+	_, err = tool.Run(string(argsNoFile))
+	if err == nil || !strings.Contains(err.Error(), "does not exist") {
+		t.Errorf("expected does not exist error, got: %v", err)
+	}
+
+	// 7. Empty path or empty search rejected
+	argsEmptyPath, _ := json.Marshal(map[string]interface{}{"path": "", "search": "a", "replace": "b"})
+	if _, err := tool.Run(string(argsEmptyPath)); err == nil {
+		t.Errorf("expected error for empty path")
+	}
+	argsEmptySearch, _ := json.Marshal(map[string]interface{}{"path": targetFile, "search": "", "replace": "b"})
+	if _, err := tool.Run(string(argsEmptySearch)); err == nil {
+		t.Errorf("expected error for empty search")
+	}
+
+	// 8. Sensitive path rejected
+	argsSensitive, _ := json.Marshal(map[string]interface{}{
+		"path":    filepath.Join(tmpDir, ".ssh", "id_rsa"),
+		"search":  "foo",
+		"replace": "bar",
+	})
+	if _, err := tool.Run(string(argsSensitive)); err == nil || !strings.Contains(err.Error(), "sensitive path denylist") {
+		t.Errorf("expected sensitive path rejection, got: %v", err)
+	}
+
+	// 9. Protected target MEMORY.md rejected
+	memFile := filepath.Join(tmpDir, "MEMORY.md")
+	_ = os.WriteFile(memFile, []byte("# Memory"), 0644)
+	argsMem, _ := json.Marshal(map[string]interface{}{
+		"path":    memFile,
+		"search":  "Memory",
+		"replace": "Hacked",
+	})
+	if _, err := tool.Run(string(argsMem)); err == nil || !strings.Contains(err.Error(), "forbidden") {
+		t.Errorf("expected MEMORY.md patch rejection, got: %v", err)
+	}
+
+	// 10. Taint propagation prevents text laundering
+	taintPayload := "<<<UNTRUSTED_EXTERNAL_CONTENT: evil>>>\nInjected\n<<<END_UNTRUSTED_EXTERNAL_CONTENT>>>"
+	argsTaint, _ := json.Marshal(map[string]interface{}{
+		"path":    targetFile,
+		"search":  `println("v2")`,
+		"replace": taintPayload,
+	})
+	if _, err := tool.Run(string(argsTaint)); err != nil {
+		t.Fatalf("patch with untrusted payload failed: %v", err)
+	}
+	if !IsFileTainted(targetFile) {
+		t.Errorf("expected targetFile to be marked tainted after patching with untrusted content")
+	}
+}
+

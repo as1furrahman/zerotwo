@@ -520,3 +520,81 @@ func containsSub(s, substr string) bool {
 	}
 	return false
 }
+
+func TestPolicyPatchFile(t *testing.T) {
+	policy := NewPolicy()
+	ws := t.TempDir()
+
+	// 1. Sensitive path denied
+	reqSensitive := AuthorizationRequest{
+		ToolName:   "patch_file",
+		ArgsJSON:   `{"path":"/home/user/.ssh/id_rsa","search":"a","replace":"b"}`,
+		Workspace:  ws,
+		AutoYes:    true,
+		AllowShell: true,
+	}
+	dec, _, err := policy.Authorize(reqSensitive)
+	if dec != DecisionDeny || err == nil {
+		t.Errorf("expected DecisionDeny for sensitive path patch, got %v", dec)
+	}
+
+	// 2. Direct MEMORY.md and session files denied
+	forbidden := []string{"MEMORY.md", "./memory.md", "sessions/default.json"}
+	for _, f := range forbidden {
+		req := AuthorizationRequest{
+			ToolName:   "patch_file",
+			ArgsJSON:   fmt.Sprintf(`{"path":%q,"search":"a","replace":"b"}`, f),
+			Workspace:  ws,
+			AutoYes:    true,
+			AllowShell: true,
+		}
+		dec, _, err := policy.Authorize(req)
+		if dec != DecisionDeny || err == nil {
+			t.Errorf("expected DecisionDeny for patch to %s, got %v", f, dec)
+		}
+	}
+
+	// 3. Clean turn inside workspace with AutoYes allowed
+	localFile := filepath.Join(ws, "code.go")
+	reqClean := AuthorizationRequest{
+		ToolName:     "patch_file",
+		ArgsJSON:     fmt.Sprintf(`{"path":%q,"search":"v1","replace":"v2"}`, localFile),
+		Workspace:    ws,
+		AutoYes:      true,
+		ConfirmTools: []string{"patch_file"},
+	}
+	dec, _, err = policy.Authorize(reqClean)
+	if dec != DecisionAllow || err != nil {
+		t.Errorf("expected DecisionAllow with AutoYes in clean turn, got %v (err=%v)", dec, err)
+	}
+
+	// 4. In ConfirmTools without AutoYes requires approval
+	reqConfirm := AuthorizationRequest{
+		ToolName:     "patch_file",
+		ArgsJSON:     fmt.Sprintf(`{"path":%q,"search":"v1","replace":"v2"}`, localFile),
+		Workspace:    ws,
+		AutoYes:      false,
+		ConfirmTools: []string{"patch_file"},
+	}
+	dec, details, err := policy.Authorize(reqConfirm)
+	if dec != DecisionRequireApproval || err != nil {
+		t.Errorf("expected DecisionRequireApproval without AutoYes, got %v", dec)
+	}
+	if details.Action != "patch_file" {
+		t.Errorf("expected action patch_file, got %s", details.Action)
+	}
+
+	// 5. Tainted context requires approval even with AutoYes
+	reqTainted := AuthorizationRequest{
+		ToolName:       "patch_file",
+		ArgsJSON:       fmt.Sprintf(`{"path":%q,"search":"v1","replace":"v2"}`, localFile),
+		Workspace:      ws,
+		AutoYes:        true,
+		ContextTainted: true,
+	}
+	dec, _, err = policy.Authorize(reqTainted)
+	if dec != DecisionRequireApproval || err != nil {
+		t.Errorf("expected DecisionRequireApproval for tainted context even with AutoYes, got %v", dec)
+	}
+}
+

@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 	"unicode"
@@ -169,87 +170,125 @@ func (l *Loop) Run(ctx context.Context, userMessage string, sess *session.Sessio
 		if len(assistantMsg.ToolCalls) > 0 {
 			sess.Messages = append(sess.Messages, assistantMsg)
 
-			for toolIdx, tc := range assistantMsg.ToolCalls {
-				// If turn was already cancelled, complete all remaining tool calls so no dangling IDs remain
-				if ctx.Err() != nil {
-					for k := toolIdx; k < len(assistantMsg.ToolCalls); k++ {
-						remTc := assistantMsg.ToolCalls[k]
-						sess.Messages = append(sess.Messages, provider.Message{
-							Role:       "tool",
-							ToolCallID: remTc.ID,
-							Content:    fmt.Sprintf("TOOL EXECUTION CANCELLED: request was aborted by user (%v)", ctx.Err()),
+			// Partition tool calls into consecutive execution batches
+			var batches []*toolBatch
+			for i, tc := range assistantMsg.ToolCalls {
+				name := tc.Function.Name
+				args := strings.TrimSpace(tc.Function.Arguments)
+				if args == "" {
+					args = "{}"
+				}
+				item := &toolCallItem{
+					index:    i,
+					call:     tc,
+					toolName: name,
+					toolArgs: args,
+				}
+
+				if isConcurrentSafeTool(name) {
+					if len(batches) > 0 && batches[len(batches)-1].concurrent {
+						batches[len(batches)-1].items = append(batches[len(batches)-1].items, item)
+					} else {
+						batches = append(batches, &toolBatch{
+							concurrent: true,
+							items:      []*toolCallItem{item},
 						})
 					}
+				} else {
+					batches = append(batches, &toolBatch{
+						concurrent: false,
+						items:      []*toolCallItem{item},
+					})
+				}
+			}
+
+			for batchIdx, batch := range batches {
+				if ctx.Err() != nil {
+					l.cancelRemainingBatches(ctx, sess, batches, batchIdx, 0)
 					break
 				}
 
-				toolName := tc.Function.Name
-				toolArgs := strings.TrimSpace(tc.Function.Arguments)
-				if toolArgs == "" {
-					toolArgs = "{}"
+				// Authorization and validation step (evaluated sequentially on /dev/tty)
+				for itemIdx, item := range batch.items {
+					if ctx.Err() != nil {
+						l.cancelRemainingBatches(ctx, sess, batches, batchIdx, itemIdx)
+						break
+					}
+
+					var rawJSON json.RawMessage
+					if err := json.Unmarshal([]byte(item.toolArgs), &rawJSON); err != nil {
+						item.failed = true
+						item.result = fmt.Sprintf("TOOL EXECUTION ERROR: malformed JSON arguments from model: %v (raw: %q)", err, item.toolArgs)
+						continue
+					}
+
+					if err := l.checkToolConfirmation(ctx, item.toolName, item.toolArgs, isTainted); err != nil {
+						item.failed = true
+						item.result = fmt.Sprintf("TOOL EXECUTION DENIED BY USER: %v", err)
+						continue
+					}
 				}
 
-				// Tool arguments JSON pre-validation
-				var rawJSON json.RawMessage
-				if err := json.Unmarshal([]byte(toolArgs), &rawJSON); err != nil {
-					toolResult := fmt.Sprintf("TOOL EXECUTION ERROR: malformed JSON arguments from model: %v (raw: %q)", err, toolArgs)
+				if ctx.Err() != nil {
+					break
+				}
+
+				// Execution step: concurrent dispatch for safe read-only batches, sequential for mutating batches
+				if batch.concurrent && len(batch.items) > 1 {
+					sem := make(chan struct{}, maxConcurrentTools)
+					var wg sync.WaitGroup
+					for _, item := range batch.items {
+						if item.failed {
+							continue
+						}
+						wg.Add(1)
+						go func(it *toolCallItem) {
+							defer wg.Done()
+							sem <- struct{}{}
+							defer func() { <-sem }()
+							it.result = l.registry.DispatchContext(ctx, it.toolName, it.toolArgs)
+						}(item)
+					}
+					wg.Wait()
+				} else {
+					for _, item := range batch.items {
+						if item.failed {
+							continue
+						}
+						item.result = l.registry.DispatchContext(ctx, item.toolName, item.toolArgs)
+					}
+				}
+
+				// Post-execution step: collect results in exact original order, update taint, and append tool messages
+				for _, item := range batch.items {
+					toolResult := item.result
+
+					// Check if tool introduced untrusted external content or remote egress
+					if strings.Contains(toolResult, "<<<UNTRUSTED_EXTERNAL_CONTENT") ||
+						item.toolName == "web_fetch" || item.toolName == "http_request" || item.toolName == "web_search" {
+						isTainted = true
+						sess.Tainted = true
+					}
+
+					// If write_file or patch_file was executed during a tainted turn, mark the target file as tainted
+					if (item.toolName == "write_file" || item.toolName == "patch_file") && isTainted {
+						var writeArgs struct {
+							Path string `json:"path"`
+						}
+						if err := json.Unmarshal([]byte(item.toolArgs), &writeArgs); err == nil && writeArgs.Path != "" {
+							tools.MarkFileTainted(writeArgs.Path)
+						}
+					}
+
 					sess.Messages = append(sess.Messages, provider.Message{
 						Role:       "tool",
-						ToolCallID: tc.ID,
+						ToolCallID: item.call.ID,
 						Content:    toolResult,
 					})
-					continue
 				}
 
-				// Tool confirmation check via centralized authorization policy
-				if err := l.checkToolConfirmation(ctx, toolName, toolArgs, isTainted); err != nil {
-					// User denied or failed closed -> feed observation to model
-					toolResult := fmt.Sprintf("TOOL EXECUTION DENIED BY USER: %v", err)
-					sess.Messages = append(sess.Messages, provider.Message{
-						Role:       "tool",
-						ToolCallID: tc.ID,
-						Content:    toolResult,
-					})
-					continue
-				}
-
-				// Execute tool with context support
-				toolResult := l.registry.DispatchContext(ctx, toolName, toolArgs)
-
-				// Check if tool introduced untrusted external content or remote egress
-				if strings.Contains(toolResult, "<<<UNTRUSTED_EXTERNAL_CONTENT") ||
-					toolName == "web_fetch" || toolName == "http_request" || toolName == "web_search" {
-					isTainted = true
-					sess.Tainted = true
-				}
-
-				// If write_file was executed during a tainted turn, mark the target file as tainted
-				// so reading it back later preserves the taint barrier and prevents text laundering!
-				if toolName == "write_file" && isTainted {
-					var writeArgs struct {
-						Path string `json:"path"`
-					}
-					if err := json.Unmarshal([]byte(toolArgs), &writeArgs); err == nil && writeArgs.Path != "" {
-						tools.MarkFileTainted(writeArgs.Path)
-					}
-				}
-
-				sess.Messages = append(sess.Messages, provider.Message{
-					Role:       "tool",
-					ToolCallID: tc.ID,
-					Content:    toolResult,
-				})
-
-				// If execution of this tool got cancelled, complete any remaining tools in the batch
-				if ctx.Err() != nil && toolIdx+1 < len(assistantMsg.ToolCalls) {
-					for k := toolIdx + 1; k < len(assistantMsg.ToolCalls); k++ {
-						remTc := assistantMsg.ToolCalls[k]
-						sess.Messages = append(sess.Messages, provider.Message{
-							Role:       "tool",
-							ToolCallID: remTc.ID,
-							Content:    fmt.Sprintf("TOOL EXECUTION CANCELLED: request was aborted by user (%v)", ctx.Err()),
-						})
-					}
+				if ctx.Err() != nil && batchIdx+1 < len(batches) {
+					l.cancelRemainingBatches(ctx, sess, batches, batchIdx+1, 0)
 					break
 				}
 			}
@@ -756,3 +795,47 @@ func groupAtomicUnits(history []provider.Message) [][]provider.Message {
 
 	return units
 }
+
+const maxConcurrentTools = 8
+
+// isConcurrentSafeTool returns whether a tool is read-only and safe for concurrent dispatch.
+func isConcurrentSafeTool(name string) bool {
+	switch name {
+	case "read_file", "list_dir", "get_system_status", "web_fetch", "web_search":
+		return true
+	default:
+		return false
+	}
+}
+
+type toolCallItem struct {
+	index    int
+	call     provider.ToolCall
+	toolName string
+	toolArgs string
+	failed   bool
+	result   string
+}
+
+type toolBatch struct {
+	concurrent bool
+	items      []*toolCallItem
+}
+
+func (l *Loop) cancelRemainingBatches(ctx context.Context, sess *session.Session, batches []*toolBatch, fromBatch, fromItem int) {
+	for b := fromBatch; b < len(batches); b++ {
+		startItem := 0
+		if b == fromBatch {
+			startItem = fromItem
+		}
+		for i := startItem; i < len(batches[b].items); i++ {
+			remTc := batches[b].items[i].call
+			sess.Messages = append(sess.Messages, provider.Message{
+				Role:       "tool",
+				ToolCallID: remTc.ID,
+				Content:    fmt.Sprintf("TOOL EXECUTION CANCELLED: request was aborted by user (%v)", ctx.Err()),
+			})
+		}
+	}
+}
+
