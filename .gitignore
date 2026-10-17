@@ -1,0 +1,19 @@
+# Binaries and build artifacts
+bin/
+*.test
+*.test6
+*.test64
+*.exe
+
+# Stray test files & directories
+~
+*~
+*.swp
+*.swo
+
+# Session data & test output
+sessions/
+devtest/
+
+# OS artifacts
+.DS_Store
