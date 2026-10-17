@@ -1,0 +1,62 @@
+name: Bug Report
+description: Create a report to help us improve ZeroTwo
+title: "[BUG]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! Please provide as much detail as possible.
+  - type: input
+    id: version
+    attributes:
+      label: ZeroTwo Version or Commit
+      description: What version of ZeroTwo are you running? (Run `zerotwo --version` or `git rev-parse HEAD`)
+      placeholder: "e.g. v0.1.0 or commit ce03988"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating System / Target Platform
+      options:
+        - "Linux x86_64 (amd64)"
+        - "Linux ARM64 (Raspberry Pi 3/4/5, server)"
+        - "Linux ARMv7-A (Kindle e-reader, Pi 2)"
+        - "Linux ARMv6 (Raspberry Pi Zero / 1)"
+        - "Android Termux (ARM64)"
+        - "Other"
+    validations:
+      required: true
+  - type: input
+    id: provider
+    attributes:
+      label: Model Provider
+      description: Which LLM provider endpoint are you connecting to? (DO NOT paste API keys!)
+      placeholder: "e.g. Groq (llama-3.3-70b-versatile), Ollama local, OpenAI"
+    validations:
+      required: false
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: A clear and concise description of what the bug is.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: Step-by-step instructions to reproduce the issue.
+      placeholder: |
+        1. Run `zerotwo -m "..."`
+        2. Expected behavior ...
+        3. Observed error ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant Logs / Terminal Output
+      description: Please paste any relevant command outputs or error messages. (Mask any private paths or tokens!)
+      render: shell
