@@ -71,8 +71,8 @@ jobs:
 
       - name: QEMU ARMv7 Verification
         run: |
-          qemu-arm bin/zerotwo-linux-armv7 -dry-run "CI ARMv7 Verification"
+          qemu-arm bin/zerotwo-linux-armv7 -dry-run -m "CI ARMv7 Verification" < /dev/null
 
       - name: QEMU ARM64 Verification
         run: |
-          qemu-aarch64 bin/zerotwo-linux-arm64 -dry-run "CI ARM64 Verification"
+          qemu-aarch64 bin/zerotwo-linux-arm64 -dry-run -m "CI ARM64 Verification" < /dev/null

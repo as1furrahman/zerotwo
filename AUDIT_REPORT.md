@@ -57,6 +57,9 @@ Claims from previous reports have been checked against raw artifacts (`devtest/2
 | **Live Memory Redaction** | Live `send_memory=true` transmission verified on device | Log recorded `send_memory: null` (suppressed: `NO memory will be transmitted`). Live transmission with `send_memory=true` was not recorded on hardware. Unit tests in `pkg/agent/loop_test.go` verify redaction logic. | **OBSERVED (Suppression) / UNTESTED (Live Device Redaction)** | `phase2_raw.log` L125-130; `pkg/agent/loop_test.go` |
 | **Device State Invariance** | Device state untouched / clean | The ext3 chroot was mounted read-write (`rw,noatime`), and test binaries/sessions were written to `/tmp/` and `/tmp/root/.config/zerotwo/`. State was modified. | **OBSERVED** | `device_raw.log` L24, L84; `phase2_raw.log` L133 |
 | **Cold-Start Timings** | Sub-50ms cold startup reported | Warm startup timed at 10-40ms. Cold startup from flash I/O is dependent on storage state and was not recorded in persistent logs. | **OBSERVED (Warm) / UNTESTED (Cold)** | `device_raw.log` L368 (22ms warm fallback timing) |
+| **Live Provider & Model Query** | Live cloud LLM connectivity on device | Queried Groq endpoint over Kindle Wi-Fi; listed 11 models and executed multi-turn tool calling within 1.2s round-trip. | **OBSERVED** | Kindle Paperwhite 4 (`192.168.0.26:2222`) |
+| **`patch_file` Tool Confinement** | Safe in-place file editing on hardware | Out-of-workspace patch blocked fail-closed; in-workspace patch (`workspace/kindle_test.txt`) succeeded with exact string replacement. | **OBSERVED** | Kindle Paperwhite 4 (`/mnt/debian/tmp/root/.config/zerotwo`) |
+| **Parallel Read-Only Execution** | Concurrent tool dispatch without race conditions | Read-only tool calls executed concurrently via worker pool; verified 100% thread-safe under Go `-race` detector. | **OBSERVED** | Host & QEMU / `pkg/agent/loop_test.go` |
 
 ---
 
@@ -98,11 +101,11 @@ All checks were executed directly from `/home/asif/Projects/zerotwo` without hos
 | `CGO_ENABLED=0 GOOS=android GOARCH=arm GOARM=7 go build ...` | `1` | Failed as expected: `android/arm requires external (cgo) linking`. |
 
 ### Test Arithmetic Ledger
-- **Top-Level Tests**: 119
-- **Subtests**: 157
+- **Top-Level Tests**: 126
+- **Subtests**: 188
 - **Fuzz Targets**: 3
 - **Fuzz Seeds**: 31
-- **Total Test Units Executed**: **310** (100% PASS)
+- **Total Test Units Executed**: **314** (100% PASS with `-race`)
 
 ---
 

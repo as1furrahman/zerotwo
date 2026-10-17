@@ -838,4 +838,3 @@ func (l *Loop) cancelRemainingBatches(ctx context.Context, sess *session.Session
 		}
 	}
 }
-

@@ -2003,4 +2003,3 @@ func TestPatchFileExecutionInAgentLoop(t *testing.T) {
 		t.Errorf("file was not patched properly: %s", string(patchedData))
 	}
 }
-

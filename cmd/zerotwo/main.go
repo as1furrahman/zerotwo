@@ -162,6 +162,9 @@ func main() {
 	}
 
 	userPrompt := *message
+	if userPrompt == "" && len(flag.Args()) > 0 {
+		userPrompt = strings.Join(flag.Args(), " ")
+	}
 	if pipedInput != "" {
 		if userPrompt != "" {
 			userPrompt = fmt.Sprintf("%s\n\n[Piped Input]:\n%s", userPrompt, pipedInput)

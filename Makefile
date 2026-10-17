@@ -51,9 +51,9 @@ bench: build
 
 test-qemu: build-armv7 build-arm64
 	@echo "=== Testing ARMv7 under QEMU ==="
-	$(QEMU_ARM) bin/zerotwo-linux-armv7 -dry-run "QEMU ARMv7 verification"
+	$(QEMU_ARM) bin/zerotwo-linux-armv7 -dry-run "QEMU ARMv7 verification" < /dev/null
 	@echo "=== Testing ARM64 under QEMU ==="
-	$(QEMU_ARM64) bin/zerotwo-linux-arm64 -dry-run "QEMU ARM64 verification"
+	$(QEMU_ARM64) bin/zerotwo-linux-arm64 -dry-run "QEMU ARM64 verification" < /dev/null
 
 test-qemu-armv7:
 	@echo "=== Running All Packages under QEMU ARMv7 (32-bit) ==="

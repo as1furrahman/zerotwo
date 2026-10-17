@@ -475,4 +475,3 @@ func TestPatchFileTool(t *testing.T) {
 		t.Errorf("expected targetFile to be marked tainted after patching with untrusted content")
 	}
 }
-

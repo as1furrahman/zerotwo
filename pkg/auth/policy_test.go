@@ -597,4 +597,3 @@ func TestPolicyPatchFile(t *testing.T) {
 		t.Errorf("expected DecisionRequireApproval for tainted context even with AutoYes, got %v", dec)
 	}
 }
-
