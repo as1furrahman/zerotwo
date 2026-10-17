@@ -209,15 +209,14 @@ func main() {
 	if modelDisplay == "" {
 		modelDisplay = "(default from provider)"
 	}
-	fmt.Printf(banner, modelDisplay)
-	fmt.Printf("  Endpoint: %s  |  Session: %s\n\n", cfg.Provider.BaseURL, sess.ID)
+	fmt.Print(ui.CyberdeckBanner(modelDisplay, sess.ID, cfg.Agent.Workspace, 8, 10))
 
 	scanner := bufio.NewScanner(os.Stdin)
 	// 10 MB buffer for line input
 	scanner.Buffer(make([]byte, 64*1024), 10*1024*1024)
 
 	for {
-		fmt.Print("\033[1myou>\033[0m ")
+		fmt.Print(ui.CyberdeckDock())
 		if !scanner.Scan() {
 			break // EOF / Ctrl-D
 		}
@@ -227,13 +226,33 @@ func main() {
 			continue
 		}
 
-		// Built-in REPL commands
-		if input == "exit" || input == "quit" || input == "bye" {
-			fmt.Println("Goodbye.")
+		// Built-in Cyberdeck & REPL commands
+		if input == "exit" || input == "quit" || input == "bye" || input == "q" {
+			fmt.Println("\nJack out complete. Goodbye, Darling.")
 			break
+		}
+		if input == "?" || input == "/menu" {
+			printCyberdeckPalette()
+			continue
 		}
 		if input == "/help" {
 			printHelp()
+			continue
+		}
+		if input == "c" || input == "/c" || input == "/shards" || input == "/clippings" {
+			handleClippingsExplorer(cfg.Agent.Workspace, scanner, loop, sess)
+			continue
+		}
+		if input == "x" || input == "/x" || input == "/export" || input == "/datadump" {
+			path, err := session.ExportDataDump(sess, cfg.Agent.Workspace)
+			if err != nil {
+				fmt.Printf("\n\033[31mExport failed: %v\033[0m\n\n", err)
+			} else {
+				fmt.Printf("\n \033[1m▲▲ // DATA DUMP COMPILED ////////////////////////////////////////////\033[0m\n")
+				fmt.Printf(" Target: %s\n", path)
+				fmt.Printf(" Status: Indexed into Kindle Library. You can read it offline, Darling.\n")
+				fmt.Printf(" ///////////////////////////////////////////////////////////////////////\n\n")
+			}
 			continue
 		}
 		if input == "/status" {
@@ -279,11 +298,16 @@ func main() {
 
 		ctx, cancel := createInterruptContext()
 
-		fmt.Printf("\033[90m[%s is thinking...]\033[0m\n", cfg.Agent.Name)
+		fmt.Print(ui.NeuralLinkEngagement("neural resonance engaged · streaming quickhack..."))
 
+		firstToken := true
 		var tokenCb provider.TokenCallback
 		if cfg.Provider.Stream {
 			tokenCb = func(token string) {
+				if firstToken {
+					fmt.Print("\n \033[1m▲▲ ZERO TWO\033[0m\n")
+					firstToken = false
+				}
 				fmt.Print(token)
 			}
 		}
@@ -301,13 +325,110 @@ func main() {
 		}
 
 		if !cfg.Provider.Stream {
-			fmt.Println()
-			ui.RenderPaged(response)
+			fmt.Print("\n \033[1m▲▲ ZERO TWO\033[0m\n")
+			ui.RenderPaged(ui.MarkdownToTerm(response))
 			fmt.Println()
 		} else {
 			fmt.Print("\n\n")
 		}
 	}
+}
+
+func handleClippingsExplorer(workspace string, scanner *bufio.Scanner, loop *agent.Loop, sess *session.Session) {
+	clipPath := tools.FindClippingsPath("", workspace)
+	items, err := tools.ReadClippingsFile(clipPath, 5, "")
+	if err != nil || len(items) == 0 {
+		fmt.Printf("\n\033[90m▲▲ No memory shards found at %s\033[0m\n\n", clipPath)
+		return
+	}
+
+	fmt.Printf("\n \033[1m▲▲ // MEMORY SHARDS: ACCESSED ////////////////////////////////////////\033[0m\n")
+	fmt.Printf(" Source: %s\n\n", clipPath)
+	for i, it := range items {
+		authorStr := ""
+		if it.Author != "" {
+			authorStr = fmt.Sprintf(" (%s)", it.Author)
+		}
+		locStr := ""
+		if it.Location != "" {
+			locStr = fmt.Sprintf(" · Loc: %s", it.Location)
+		}
+		preview := it.Content
+		if len(preview) > 120 {
+			preview = preview[:117] + "..."
+		}
+		fmt.Printf(" [%d] \033[1m\"%s\"%s\033[0m%s\n", i+1, it.Title, authorStr, locStr)
+		fmt.Printf("     \"%s\"\n\n", preview)
+	}
+
+	fmt.Printf(" Select shard [1-%d], or 'q' to abort: ", len(items))
+	if !scanner.Scan() {
+		return
+	}
+	choice := strings.TrimSpace(scanner.Text())
+	if choice == "q" || choice == "" {
+		return
+	}
+
+	idx := 0
+	for i := range items {
+		if choice == fmt.Sprintf("%d", i+1) {
+			idx = i + 1
+			break
+		}
+	}
+	if idx == 0 {
+		fmt.Println("Invalid selection.")
+		return
+	}
+
+	selected := items[idx-1]
+	prompt := fmt.Sprintf("Please explain and analyze this reading highlight from \"%s\":\n\n\"%s\"", selected.Title, selected.Content)
+
+	fmt.Printf("\n \033[1mZero Two\033[0m: \"Decompiling shard from \033[1m%s\033[0m, Darling...\"\n", selected.Title)
+
+	ctx, cancel := createInterruptContext()
+	defer cancel()
+
+	firstToken := true
+	var tokenCb provider.TokenCallback
+	tokenCb = func(token string) {
+		if firstToken {
+			fmt.Print("\n \033[1m▲▲ ZERO TWO\033[0m\n")
+			firstToken = false
+		}
+		fmt.Print(token)
+	}
+
+	_, err = loop.Run(ctx, prompt, sess, tokenCb)
+	if err != nil {
+		fmt.Printf("\n\033[31merror: %v\033[0m\n", err)
+	}
+	fmt.Print("\n\n")
+}
+
+func printCyberdeckPalette() {
+	fmt.Print(`
+ ▲▲ // CYBERDECK PALETTE /////////////////////////////////////////////
+ 
+ Deck Operations:
+   c, /c, /shards       — Access Kindle Reading Shards (My Clippings.txt)
+   x, /x, /export       — Compile active run into eBook Data Dump (HTML)
+   /status              — Telemetry: RAM, Model, Magma Reactor, Sockets
+   /clear               — Purge active neural context & session history
+   /reload              — Rebuild static prompt from memory & config
+   /memory              — View long-term neural memory (MEMORY.md)
+   /memory-preview      — Inspect exact payload sent to provider
+   exit, q, quit        — Jack out of cyberdeck
+
+ CLI Arguments:
+   -m "prompt"          — Single-shot non-interactive neural query
+   -e "command task"    — Shell assistant mode: translate English to bash
+   -models              — Ping API endpoint & list active served models
+   -dry-run             — Preview complete request payload with masked keys
+   -yes                 — Bypass non-destructive quickhack confirmations
+ /////////////////////////////////////////////////////////////////////
+`)
 }
 
 func buildRegistry(cfg *config.Config, mem *agent.MemoryStore) *tools.Registry {
@@ -332,6 +453,7 @@ func buildRegistry(cfg *config.Config, mem *agent.MemoryStore) *tools.Registry {
 		r.Register(tools.NewSearchTool(cfg.Tools.BraveAPIKey, cfg.Tools.MaxSearchResults, maxOut))
 	}
 
+	r.Register(tools.NewReadClippingsTool(cfg.Agent.Workspace))
 	r.Register(agent.NewSaveMemoryTool(mem))
 	r.Register(agent.NewPatchMemoryTool(mem))
 

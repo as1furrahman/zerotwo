@@ -35,6 +35,25 @@ func GetTerminalRows() int {
 	return 25 // standard terminal fallback
 }
 
+// GetTerminalCols queries TIOCGWINSZ on stdout (fd 1), falls back to stderr (fd 2), then 80 columns.
+func GetTerminalCols() int {
+	var ws winsize
+
+	// 1. Check stdout
+	_, _, err := syscall.Syscall(syscall.SYS_IOCTL, uintptr(syscall.Stdout), uintptr(syscall.TIOCGWINSZ), uintptr(unsafe.Pointer(&ws))) // #nosec G103 -- ioctl TIOCGWINSZ query
+	if err == 0 && ws.Col > 0 {
+		return int(ws.Col)
+	}
+
+	// 2. Check stderr
+	_, _, err = syscall.Syscall(syscall.SYS_IOCTL, uintptr(syscall.Stderr), uintptr(syscall.TIOCGWINSZ), uintptr(unsafe.Pointer(&ws))) // #nosec G103 -- ioctl TIOCGWINSZ query
+	if err == 0 && ws.Col > 0 {
+		return int(ws.Col)
+	}
+
+	return 80 // standard terminal fallback
+}
+
 // RenderPaged prints text with automatic screen-height pagination if attached to a TTY.
 func RenderPaged(text string) {
 	rows := GetTerminalRows()

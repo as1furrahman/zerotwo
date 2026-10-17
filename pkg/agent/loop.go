@@ -18,6 +18,7 @@ import (
 	"zerotwo/pkg/provider"
 	"zerotwo/pkg/session"
 	"zerotwo/pkg/tools"
+	"zerotwo/pkg/ui"
 )
 
 type Loop struct {
@@ -263,6 +264,10 @@ func (l *Loop) Run(ctx context.Context, userMessage string, sess *session.Sessio
 				for _, item := range batch.items {
 					toolResult := item.result
 
+					if ui.IsStdoutTerminal() {
+						fmt.Print(ui.QuickhackCard(item.toolName, item.toolArgs, toolResult))
+					}
+
 					// Check if tool introduced untrusted external content or remote egress
 					if strings.Contains(toolResult, "<<<UNTRUSTED_EXTERNAL_CONTENT") ||
 						item.toolName == "web_fetch" || item.toolName == "http_request" || item.toolName == "web_search" {
@@ -414,28 +419,15 @@ func (l *Loop) promptDestructiveConfirmationWithDetails(ctx context.Context, det
 		defer closer.Close()
 	}
 
-	fmt.Fprintf(w, "\n[CRITICAL WARNING: Destructive Action Detected!]\n")
-	if details.Action != "" {
-		fmt.Fprintf(w, "Action: %s\n", details.Action)
-	}
-	if details.Target != "" {
-		fmt.Fprintf(w, "Target: %s\n", details.Target)
-	}
-	if details.DataScope != "" {
-		fmt.Fprintf(w, "Scope:  %s\n", details.DataScope)
-	}
-	if details.Warning != "" {
-		fmt.Fprintf(w, "Notice: %s\n", details.Warning)
-	}
-	fmt.Fprintf(w, "Type 'yes' to execute | any other input to cancel: ")
+	fmt.Fprint(w, ui.DestructiveCyberwareWarning(details.Action, details.Target, details.Warning))
 
 	input, err := readLineWithContext(ctx, r)
 	if err != nil {
 		return err
 	}
 
-	ans := strings.TrimSpace(input)
-	if ans == "yes" {
+	ans := strings.ToLower(strings.TrimSpace(input))
+	if ans == "yes" || ans == "darling" {
 		return nil
 	}
 	return fmt.Errorf("destructive command denied by user")
