@@ -11,23 +11,12 @@ import (
 	"syscall"
 	"time"
 	"zerotwo/pkg/config"
+	"zerotwo/pkg/shell"
 )
 
 // FindShellPath locates the appropriate shell binary across Linux, Android Termux, and Android system.
 func FindShellPath() string {
-	if p, err := exec.LookPath("sh"); err == nil {
-		return p
-	}
-	// Termux standard path fallback
-	const termuxSh = "/data/data/com.termux/files/usr/bin/sh"
-	if _, err := os.Stat(termuxSh); err == nil {
-		return termuxSh
-	}
-	// Android /system/bin/sh fallback
-	if _, err := os.Stat("/system/bin/sh"); err == nil {
-		return "/system/bin/sh"
-	}
-	return "/bin/sh"
+	return shell.FindShellPath()
 }
 
 type ShellTool struct {
@@ -68,8 +57,13 @@ func (t *ShellTool) RunWithContext(parentCtx context.Context, argsJSON string) (
 	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
 		return "", fmt.Errorf("invalid args: %w", err)
 	}
-	if strings.TrimSpace(args.Command) == "" {
+	trimmedCmd := strings.TrimSpace(args.Command)
+	if trimmedCmd == "" {
 		return "", fmt.Errorf("command cannot be empty")
+	}
+
+	if isMod, reason := shell.IsModifyingProtectedTarget(trimmedCmd, ""); isMod {
+		return "", fmt.Errorf("command execution denied: modifying MEMORY.md or session files via shell is forbidden (%s); use save_memory or patch_memory", reason)
 	}
 
 	timeout := t.defaultTimeout
@@ -90,9 +84,15 @@ func (t *ShellTool) RunWithContext(parentCtx context.Context, argsJSON string) (
 	shPath := FindShellPath()
 	cmd := exec.CommandContext(ctx, shPath, "-c", args.Command) // #nosec G204 -- core agent shell execution tool gated by security confirmations
 	cmd.Env = config.SanitizeChildEnv(os.Environ())
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+
+	bufCap := t.maxOutput * 2
+	if bufCap < 64*1024 {
+		bufCap = 64 * 1024
+	}
+	stdout := newBoundedBuffer(bufCap)
+	stderr := newBoundedBuffer(bufCap)
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	err := cmd.Start()
@@ -145,4 +145,36 @@ func (t *ShellTool) RunWithContext(parentCtx context.Context, argsJSON string) (
 	}
 
 	return TruncateOutput(sb.String(), t.maxOutput), nil
+}
+
+type boundedBuffer struct {
+	buf bytes.Buffer
+	max int
+}
+
+func newBoundedBuffer(max int) *boundedBuffer {
+	if max <= 0 {
+		max = 64 * 1024
+	}
+	return &boundedBuffer{max: max}
+}
+
+func (b *boundedBuffer) Write(p []byte) (n int, err error) {
+	if b.buf.Len() >= b.max {
+		return len(p), nil
+	}
+	rem := b.max - b.buf.Len()
+	if len(p) > rem {
+		_, _ = b.buf.Write(p[:rem])
+		return len(p), nil
+	}
+	return b.buf.Write(p)
+}
+
+func (b *boundedBuffer) String() string {
+	return b.buf.String()
+}
+
+func (b *boundedBuffer) Len() int {
+	return b.buf.Len()
 }

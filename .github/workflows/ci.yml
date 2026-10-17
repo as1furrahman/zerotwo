@@ -33,10 +33,10 @@ jobs:
         run: go vet ./...
 
       - name: Run Unit Tests with Race Detection
-        run: go test -race -v ./...
+        run: go test -race -v -timeout 120s ./...
 
       - name: Run Fuzz Smoke Test
-        run: go test -run=FuzzSSEStreamParser -fuzz=FuzzSSEStreamParser -fuzztime=10s ./pkg/provider
+        run: go test -run=FuzzSSEStreamParser -fuzz=FuzzSSEStreamParser -fuzztime=10s -timeout 60s ./pkg/provider
 
       - name: Run govulncheck
         run: |

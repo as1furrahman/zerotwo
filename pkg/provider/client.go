@@ -135,6 +135,15 @@ func NewClient(cfg *config.Config) (*Client, error) {
 	httpClient := &http.Client{
 		Transport: transport,
 		Timeout:   totalTimeout,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 3 {
+				return errors.New("stopped after 3 redirects")
+			}
+			if len(via) > 0 && !strings.EqualFold(via[0].URL.Host, req.URL.Host) {
+				return fmt.Errorf("provider redirect to external host %q denied to prevent credential leakage", req.URL.Host)
+			}
+			return nil
+		},
 	}
 
 	return &Client{

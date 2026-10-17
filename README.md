@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.png" alt="ZeroTwo Logo" width="240" />
+</p>
+
 # ZeroTwo (`zerotwo`)
 
 An ultra-lightweight, zero-dependency personal AI agent and CLI tool written in Go (standard library only) for low-resource Linux devices and mobile environments: Kindle ARMv7, Raspberry Pi ARMv6/ARMv7, modern ARM64 systems, and Android terminal environments (Termux).

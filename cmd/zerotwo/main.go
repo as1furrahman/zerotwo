@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 	"zerotwo/pkg/agent"
+	"zerotwo/pkg/auth"
 	"zerotwo/pkg/config"
 	"zerotwo/pkg/provider"
 	"zerotwo/pkg/session"
@@ -23,7 +24,7 @@ import (
 
 const banner = `
   ┌──────────────────────────────────────────────┐
-  │  ZeroTwo · Universal Low-Power ARM AI Agent  │
+  │  ZeroTwo · Low-Resource Linux & ARM AI Agent │
   └──────────────────────────────────────────────┘
   Model: %s  |  Type 'exit' to quit
 `
@@ -128,7 +129,9 @@ func main() {
 	if *shellAssist != "" {
 		ctx, cancel := createInterruptContext()
 		defer cancel()
-		assistant := shell.NewAssistant(client, *autoYes)
+		policy := auth.NewPolicy()
+		authorizer := auth.NewShellAuthorizer(policy, cfg.Agent.Workspace, cfg.Tools.BlockedCommands, *autoYes)
+		assistant := shell.NewAssistant(client, authorizer, *autoYes)
 		code, err := assistant.Run(ctx, *shellAssist)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Shell assistant error: %v\n", err)

@@ -40,3 +40,56 @@ func TestShellExecutionStandardOutput(t *testing.T) {
 		t.Errorf("expected stdout to contain test string, got: %s", out)
 	}
 }
+
+func TestBoundedBufferCapsMemory(t *testing.T) {
+	limit := 1024
+	bb := newBoundedBuffer(limit)
+
+	// Write 500 KB of data into 1 KB buffer
+	chunk := make([]byte, 10240)
+	for i := range chunk {
+		chunk[i] = 'A'
+	}
+
+	for i := 0; i < 50; i++ {
+		n, err := bb.Write(chunk)
+		if err != nil {
+			t.Fatalf("unexpected error writing to boundedBuffer: %v", err)
+		}
+		if n != len(chunk) {
+			t.Errorf("expected return n=%d, got %d", len(chunk), n)
+		}
+	}
+
+	if bb.Len() != limit {
+		t.Errorf("expected buffer length capped at %d, got %d", limit, bb.Len())
+	}
+
+	if len(bb.String()) != limit {
+		t.Errorf("expected string length %d, got %d", limit, len(bb.String()))
+	}
+}
+
+func TestShellToolDeniesProtectedTargets(t *testing.T) {
+	tool := NewShellTool(4096)
+
+	blockedCmds := []string{
+		"echo malicious > MEMORY.md",
+		"cat >> MEMORY.md",
+		"rm MEMORY.md",
+		"touch MEMORY.md",
+		"echo '{}' > sessions/001.json",
+		"rm sessions/active.json",
+	}
+
+	for _, cmd := range blockedCmds {
+		args := `{"command":` + `"` + cmd + `"}`
+		_, err := tool.Run(args)
+		if err == nil {
+			t.Errorf("CRITICAL SECURITY DEFECT: ShellTool executed protected target modification: %s", cmd)
+		}
+		if !strings.Contains(err.Error(), "forbidden") {
+			t.Errorf("expected error mentioning forbidden, got: %v", err)
+		}
+	}
+}

@@ -1,10 +1,51 @@
 package shell
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 	"unicode"
 )
+
+// Decision defines the authorization verdict for a command or tool execution.
+type Decision int
+
+const (
+	DecisionAllow Decision = iota
+	DecisionRequireApproval
+	DecisionRequireStrongApproval
+	DecisionDeny
+)
+
+func (d Decision) String() string {
+	switch d {
+	case DecisionAllow:
+		return "ALLOW"
+	case DecisionRequireApproval:
+		return "REQUIRE_APPROVAL"
+	case DecisionRequireStrongApproval:
+		return "REQUIRE_STRONG_APPROVAL"
+	case DecisionDeny:
+		return "DENY"
+	default:
+		return "UNKNOWN"
+	}
+}
+
+// ApprovalDetails specifies what to display to the user when approval is required.
+type ApprovalDetails struct {
+	Category       string
+	Action         string
+	Target         string
+	DataScope      string
+	RequiresStrong bool
+	Warning        string
+}
+
+// CommandAuthorizer authorizes a shell command before execution across all execution paths.
+type CommandAuthorizer interface {
+	AuthorizeCommand(cmd string) (Decision, ApprovalDetails, error)
+}
 
 type Severity int
 
@@ -544,24 +585,6 @@ func isReadOnlyCommand(baseCmd string, args []string) (bool, string) {
 	case "ss", "netstat":
 		// Only list/stats flags
 		return validateFlags(args, map[rune]bool{'t': true, 'u': true, 'l': true, 'p': true, 'n': true, 'a': true, 's': true, 'e': true, 'r': true})
-	case "ping":
-		// Needs -c flag, otherwise it pings forever
-		hasCount := false
-		for i, a := range args {
-			aClean := unquoteToken(a)
-			if aClean == "-c" && i+1 < len(args) {
-				hasCount = true
-				break
-			}
-			if strings.HasPrefix(aClean, "-c") && len(aClean) > 2 {
-				hasCount = true
-				break
-			}
-		}
-		if !hasCount {
-			return false, "ping without count flag -c"
-		}
-		return true, ""
 	case "lsblk", "lscpu", "lsof":
 		return true, ""
 	default:
@@ -846,4 +869,163 @@ func isSensitivePathOrSecret(token string) bool {
 		}
 	}
 	return false
+}
+
+// IsModifyingProtectedTarget returns true if cmd attempts to modify MEMORY.md or session files.
+func IsModifyingProtectedTarget(cmd string, workspace string) (bool, string) {
+	lowerCmd := strings.ToLower(cmd)
+
+	hasMemoryRef := strings.Contains(lowerCmd, "memory.md")
+	hasSessionRef := strings.Contains(lowerCmd, "sessions/") || strings.Contains(lowerCmd, "sessions\\")
+
+	tokens := strings.Fields(cmd)
+	for _, tok := range tokens {
+		tClean := strings.Trim(tok, "\"'`><;|&")
+		if tClean == "" {
+			continue
+		}
+		pathsToTry := []string{tClean}
+		if workspace != "" && !filepath.IsAbs(tClean) {
+			pathsToTry = append(pathsToTry, filepath.Join(workspace, tClean))
+		}
+		for _, p := range pathsToTry {
+			if realPath, err := filepath.EvalSymlinks(p); err == nil {
+				realLower := strings.ToLower(realPath)
+				if strings.EqualFold(filepath.Base(realPath), "memory.md") {
+					hasMemoryRef = true
+				}
+				if (strings.Contains(realLower, "/sessions/") || strings.HasPrefix(realLower, "sessions/")) && strings.HasSuffix(realLower, ".json") {
+					hasSessionRef = true
+				}
+			}
+			dir := filepath.Dir(p)
+			if realDir, err := filepath.EvalSymlinks(dir); err == nil {
+				resolved := filepath.Join(realDir, filepath.Base(p))
+				resLower := strings.ToLower(resolved)
+				if strings.EqualFold(filepath.Base(resolved), "memory.md") {
+					hasMemoryRef = true
+				}
+				if (strings.Contains(resLower, "/sessions/") || strings.HasPrefix(resLower, "sessions/")) && strings.HasSuffix(resLower, ".json") {
+					hasSessionRef = true
+				}
+			}
+		}
+	}
+
+	if !hasMemoryRef && !hasSessionRef {
+		return false, ""
+	}
+
+	// 1. Redirection targeting protected files
+	if strings.Contains(cmd, ">") {
+		return true, "write redirection targeting protected memory or session files"
+	}
+
+	// 2. dd of= targeting protected files
+	if strings.Contains(lowerCmd, "dd") && strings.Contains(lowerCmd, "of=") {
+		return true, "dd of= write targeting protected memory or session files"
+	}
+
+	// 3. Mutating commands targeting protected files
+	mutatingOps := []string{
+		"tee", "sed", "rm", "unlink", "truncate", "mv", "cp", "touch",
+		"dd", "shred", "ln", "link", "chmod", "chown", "install",
+		"git", "patch", "gzip", "gunzip", "tar", "unzip", "restore", "checkout",
+	}
+
+	for _, tok := range tokens {
+		tClean := strings.ToLower(strings.Trim(tok, "\"'`;&|"))
+		base := filepath.Base(tClean)
+		for _, op := range mutatingOps {
+			if base == op {
+				return true, fmt.Sprintf("mutating command %s targeting protected memory or session files", op)
+			}
+		}
+	}
+
+	// 4. Interpreters: python, perl, ruby, node, bash, sh with script execution
+	interpreters := []string{"python", "python3", "perl", "ruby", "node", "bash", "sh", "zsh", "dash", "ksh"}
+	for _, tok := range tokens {
+		tClean := strings.ToLower(strings.Trim(tok, "\"'`;&|"))
+		base := filepath.Base(tClean)
+		for _, interp := range interpreters {
+			if base == interp {
+				return true, fmt.Sprintf("script interpreter %s targeting protected memory or session files", interp)
+			}
+		}
+	}
+
+	return false, ""
+}
+
+// IsNetworkCapableCommand returns true if cmd can initiate outbound network connections or egress.
+func IsNetworkCapableCommand(cmd string) (bool, string) {
+	tokens := strings.Fields(cmd)
+	if len(tokens) == 0 {
+		return false, ""
+	}
+
+	for i, tok := range tokens {
+		tClean := strings.ToLower(strings.Trim(tok, "\"'`;&|"))
+		base := filepath.Base(tClean)
+
+		switch base {
+		case "curl", "wget", "http", "fetch":
+			return true, base + " HTTP client"
+		case "nc", "netcat", "ncat", "socat", "telnet":
+			return true, base + " network socket utility"
+		case "scp", "ssh", "sftp":
+			return true, base + " remote shell/transfer utility"
+		case "rsync":
+			return true, "rsync remote file synchronization"
+		case "ftp", "tftp":
+			return true, base + " file transfer utility"
+		case "ping", "traceroute", "tracepath", "nmap", "dig", "nslookup", "host", "whois":
+			return true, base + " network probe utility"
+		case "openssl":
+			for j := i + 1; j < len(tokens); j++ {
+				sub := strings.ToLower(strings.Trim(tokens[j], "\"'`;&|"))
+				if strings.HasPrefix(sub, "-") {
+					continue
+				}
+				if sub == "s_client" || sub == "s_time" {
+					return true, "openssl " + sub + " TLS network connection"
+				}
+				break
+			}
+		case "busybox":
+			for j := i + 1; j < len(tokens); j++ {
+				sub := strings.ToLower(strings.Trim(tokens[j], "\"'`;&|"))
+				if strings.HasPrefix(sub, "-") {
+					continue
+				}
+				switch sub {
+				case "wget", "nc", "netcat", "telnet", "ftpget", "ftpput", "ping", "traceroute", "nslookup", "tftp", "httpd":
+					return true, "busybox " + sub + " network utility"
+				}
+				break
+			}
+		case "apt", "apt-get", "apk", "dnf", "yum", "pacman", "zypper", "pip", "pip3", "npm", "cargo", "gem", "brew", "dpkg", "rpm":
+			return true, base + " package manager with network egress"
+		case "git":
+			for j := i + 1; j < len(tokens); j++ {
+				sub := strings.ToLower(strings.Trim(tokens[j], "\"'`;&|"))
+				if strings.HasPrefix(sub, "-") {
+					continue
+				}
+				if sub == "clone" || sub == "push" || sub == "pull" || sub == "fetch" || sub == "remote" || sub == "ls-remote" || sub == "submodule" {
+					return true, "git " + sub + " remote network operation"
+				}
+				break
+			}
+		case "python", "python3", "perl", "ruby", "node", "php":
+			for j := i + 1; j < len(tokens); j++ {
+				arg := strings.Trim(tokens[j], "\"'`;&|")
+				if arg == "-c" || arg == "-e" || strings.HasPrefix(arg, "-c") || strings.HasPrefix(arg, "-e") {
+					return true, base + " script/one-liner execution"
+				}
+			}
+		}
+	}
+	return false, ""
 }

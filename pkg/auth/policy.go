@@ -22,29 +22,14 @@ const (
 )
 
 // Decision defines the authorization verdict.
-type Decision int
+type Decision = shell.Decision
 
 const (
-	DecisionAllow Decision = iota
-	DecisionRequireApproval
-	DecisionRequireStrongApproval
-	DecisionDeny
+	DecisionAllow                 = shell.DecisionAllow
+	DecisionRequireApproval       = shell.DecisionRequireApproval
+	DecisionRequireStrongApproval = shell.DecisionRequireStrongApproval
+	DecisionDeny                  = shell.DecisionDeny
 )
-
-func (d Decision) String() string {
-	switch d {
-	case DecisionAllow:
-		return "ALLOW"
-	case DecisionRequireApproval:
-		return "REQUIRE_APPROVAL"
-	case DecisionRequireStrongApproval:
-		return "REQUIRE_STRONG_APPROVAL"
-	case DecisionDeny:
-		return "DENY"
-	default:
-		return "UNKNOWN"
-	}
-}
 
 // AuthorizationRequest encapsulates all context needed to authorize a tool action.
 type AuthorizationRequest struct {
@@ -154,6 +139,28 @@ func (p *Policy) authorizeShell(req AuthorizationRequest, args string) (Decision
 				Warning:  fmt.Sprintf("command %q is blocked by configuration (tools.blocked_commands)", b),
 			}, fmt.Errorf("command %q is explicitly blocked by policy", b)
 		}
+	}
+
+	// Check if command attempts to modify MEMORY.md or session files (sessions/*.json)
+	if isModifying, targetReason := isModifyingProtectedTarget(cmd, req.Workspace); isModifying {
+		return DecisionDeny, ApprovalDetails{
+			Category: CategoryMutateMemory,
+			Action:   "shell",
+			Target:   cmd,
+			Warning:  fmt.Sprintf("modifying MEMORY.md or session files via shell is forbidden (%s); use save_memory or patch_memory tools instead", targetReason),
+		}, fmt.Errorf("command denied: modifying MEMORY.md or session files via shell is forbidden")
+	}
+
+	// Check if command is network-capable (curl, wget, nc, scp, ssh, git push/clone, rsync, python/perl sockets)
+	if isNet, netReason := isNetworkCapableCommand(cmd); isNet {
+		return DecisionRequireApproval, ApprovalDetails{
+			Category:       CategoryEgressRemote,
+			Action:         "execute_network_command",
+			Target:         cmd,
+			DataScope:      "network egress / remote network communication",
+			RequiresStrong: false,
+			Warning:        fmt.Sprintf("Network-capable command detected (%s). Cannot be auto-approved by --yes.", netReason),
+		}, nil
 	}
 
 	sev, reason := shell.ClassifyCommand(cmd)
@@ -346,13 +353,68 @@ func (p *Policy) authorizeFileWrite(req AuthorizationRequest, args string) (Deci
 		}, fmt.Errorf("write access denied: %s matches sensitive credentials/keys denylist", targetPath)
 	}
 
-	if strings.EqualFold(filepath.Base(targetPath), "memory.md") {
+	targetBase := strings.ToLower(filepath.Base(targetPath))
+	targetClean := strings.ToLower(filepath.ToSlash(targetPath))
+	if targetBase == "memory.md" {
 		return DecisionDeny, ApprovalDetails{
 			Category: CategoryMutateMemory,
 			Action:   "write_file",
 			Target:   targetPath,
 			Warning:  "direct file writes to MEMORY.md are forbidden; use save_memory or patch_memory tools instead",
 		}, fmt.Errorf("write access denied: direct write to MEMORY.md is forbidden; use save_memory or patch_memory")
+	}
+
+	if (strings.Contains(targetClean, "/sessions/") || strings.HasPrefix(targetClean, "sessions/")) && strings.HasSuffix(targetClean, ".json") {
+		return DecisionDeny, ApprovalDetails{
+			Category: CategoryWriteLocal,
+			Action:   "write_file",
+			Target:   targetPath,
+			Warning:  "direct file writes to session files (sessions/*.json) are forbidden; managed by session manager",
+		}, fmt.Errorf("write access denied: direct write to session files is forbidden")
+	}
+
+	if realPath, err := filepath.EvalSymlinks(targetPath); err == nil {
+		realBase := strings.ToLower(filepath.Base(realPath))
+		realClean := strings.ToLower(filepath.ToSlash(realPath))
+		if realBase == "memory.md" {
+			return DecisionDeny, ApprovalDetails{
+				Category: CategoryMutateMemory,
+				Action:   "write_file",
+				Target:   targetPath,
+				Warning:  "symlink target resolves to MEMORY.md; use save_memory or patch_memory tools instead",
+			}, fmt.Errorf("write access denied: symlink resolves to MEMORY.md")
+		}
+		if (strings.Contains(realClean, "/sessions/") || strings.HasPrefix(realClean, "sessions/")) && strings.HasSuffix(realClean, ".json") {
+			return DecisionDeny, ApprovalDetails{
+				Category: CategoryWriteLocal,
+				Action:   "write_file",
+				Target:   targetPath,
+				Warning:  "symlink target resolves to session file (sessions/*.json)",
+			}, fmt.Errorf("write access denied: symlink resolves to session file")
+		}
+	}
+
+	dirToEval := filepath.Dir(targetPath)
+	if realDir, err := filepath.EvalSymlinks(dirToEval); err == nil {
+		canonicalTarget := filepath.Join(realDir, filepath.Base(targetPath))
+		canonicalBase := strings.ToLower(filepath.Base(canonicalTarget))
+		canonicalClean := strings.ToLower(filepath.ToSlash(canonicalTarget))
+		if canonicalBase == "memory.md" {
+			return DecisionDeny, ApprovalDetails{
+				Category: CategoryMutateMemory,
+				Action:   "write_file",
+				Target:   targetPath,
+				Warning:  "symlink target resolves to MEMORY.md; use save_memory or patch_memory tools instead",
+			}, fmt.Errorf("write access denied: symlink resolves to MEMORY.md")
+		}
+		if (strings.Contains(canonicalClean, "/sessions/") || strings.HasPrefix(canonicalClean, "sessions/")) && strings.HasSuffix(canonicalClean, ".json") {
+			return DecisionDeny, ApprovalDetails{
+				Category: CategoryWriteLocal,
+				Action:   "write_file",
+				Target:   targetPath,
+				Warning:  "symlink target resolves to session file (sessions/*.json)",
+			}, fmt.Errorf("write access denied: symlink resolves to session file")
+		}
 	}
 
 	// Check workspace containment if configured
@@ -549,4 +611,57 @@ func (p *Policy) authorizeSystemStatus(req AuthorizationRequest) (Decision, Appr
 		}
 	}
 	return DecisionAllow, ApprovalDetails{Category: CategoryReadOnlyLocal, Action: "get_system_status"}, nil
+}
+
+// AuthorizeShellCommand authorizes a single shell command string for standalone execution (e.g. -e assistant).
+func (p *Policy) AuthorizeShellCommand(cmd string, autoYes bool, workspace string, blockedCommands []string) (Decision, ApprovalDetails, error) {
+	req := AuthorizationRequest{
+		ToolName:        "shell",
+		ArgsJSON:        fmt.Sprintf("{\"command\":%q}", cmd),
+		ContextTainted:  false,
+		AutoYes:         autoYes,
+		AllowShell:      true,
+		Workspace:       workspace,
+		BlockedCommands: blockedCommands,
+	}
+	return p.Authorize(req)
+}
+
+// ShellAuthorizer adapts Policy to shell.CommandAuthorizer for -e shell assistant mode.
+type ShellAuthorizer struct {
+	policy          *Policy
+	workspace       string
+	blockedCommands []string
+	autoYes         bool
+}
+
+// NewShellAuthorizer creates a new authorizer bridging Policy to the shell assistant.
+func NewShellAuthorizer(policy *Policy, workspace string, blockedCommands []string, autoYes bool) *ShellAuthorizer {
+	return &ShellAuthorizer{
+		policy:          policy,
+		workspace:       workspace,
+		blockedCommands: blockedCommands,
+		autoYes:         autoYes,
+	}
+}
+
+func (s *ShellAuthorizer) AuthorizeCommand(cmd string) (shell.Decision, shell.ApprovalDetails, error) {
+	dec, details, err := s.policy.AuthorizeShellCommand(cmd, s.autoYes, s.workspace, s.blockedCommands)
+	shellDetails := shell.ApprovalDetails{
+		Category:       string(details.Category),
+		Action:         details.Action,
+		Target:         details.Target,
+		DataScope:      details.DataScope,
+		RequiresStrong: details.RequiresStrong,
+		Warning:        details.Warning,
+	}
+	return dec, shellDetails, err
+}
+
+func isModifyingProtectedTarget(cmd string, workspace string) (bool, string) {
+	return shell.IsModifyingProtectedTarget(cmd, workspace)
+}
+
+func isNetworkCapableCommand(cmd string) (bool, string) {
+	return shell.IsNetworkCapableCommand(cmd)
 }

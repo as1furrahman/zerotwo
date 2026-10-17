@@ -31,12 +31,12 @@ build-android-arm64:
 	CGO_ENABLED=0 GOOS=android GOARCH=arm64 $(GO) build -trimpath -ldflags="$(LDFLAGS)" -o bin/zerotwo-android-arm64 cmd/zerotwo/main.go
 
 test:
-	$(GO) test -v ./...
+	$(GO) test -v -timeout 120s ./...
 
 test-race:
 	@if command -v gcc >/dev/null 2>&1; then \
 		echo "Running race detector on host..."; \
-		CGO_ENABLED=1 $(GO) test -race -v ./...; \
+		CGO_ENABLED=1 $(GO) test -race -v -timeout 120s ./...; \
 	else \
 		echo "Race detector requires CGO and a C compiler (gcc/clang). Skipping on this architecture."; \
 	fi

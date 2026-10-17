@@ -226,8 +226,38 @@ func (t *WriteFileTool) Run(argsJSON string) (string, error) {
 		return "", fmt.Errorf("write denied: %s matches sensitive path denylist (credentials/keys protected)", args.Path)
 	}
 
-	if strings.EqualFold(filepath.Base(args.Path), "memory.md") {
+	targetBase := strings.ToLower(filepath.Base(args.Path))
+	targetClean := strings.ToLower(filepath.ToSlash(args.Path))
+	if targetBase == "memory.md" {
 		return "", fmt.Errorf("write denied: direct file writing to MEMORY.md is forbidden; use save_memory or patch_memory tools")
+	}
+
+	if (strings.Contains(targetClean, "/sessions/") || strings.HasPrefix(targetClean, "sessions/")) && strings.HasSuffix(targetClean, ".json") {
+		return "", fmt.Errorf("write denied: direct file writing to session files (sessions/*.json) is forbidden")
+	}
+
+	if realPath, err := filepath.EvalSymlinks(args.Path); err == nil {
+		realBase := strings.ToLower(filepath.Base(realPath))
+		realClean := strings.ToLower(filepath.ToSlash(realPath))
+		if realBase == "memory.md" {
+			return "", fmt.Errorf("write denied: target resolves to MEMORY.md; use save_memory or patch_memory tools")
+		}
+		if (strings.Contains(realClean, "/sessions/") || strings.HasPrefix(realClean, "sessions/")) && strings.HasSuffix(realClean, ".json") {
+			return "", fmt.Errorf("write denied: target resolves to session file (sessions/*.json)")
+		}
+	}
+
+	dirToEval := filepath.Dir(args.Path)
+	if realDir, err := filepath.EvalSymlinks(dirToEval); err == nil {
+		canonicalTarget := filepath.Join(realDir, filepath.Base(args.Path))
+		canonicalBase := strings.ToLower(filepath.Base(canonicalTarget))
+		canonicalClean := strings.ToLower(filepath.ToSlash(canonicalTarget))
+		if canonicalBase == "memory.md" {
+			return "", fmt.Errorf("write denied: target resolves to MEMORY.md; use save_memory or patch_memory tools")
+		}
+		if (strings.Contains(canonicalClean, "/sessions/") || strings.HasPrefix(canonicalClean, "sessions/")) && strings.HasSuffix(canonicalClean, ".json") {
+			return "", fmt.Errorf("write denied: target resolves to session file (sessions/*.json)")
+		}
 	}
 
 	// If content being written contains untrusted external markers, mark this file path as tainted

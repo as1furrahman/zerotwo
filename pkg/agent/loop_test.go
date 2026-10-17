@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
@@ -946,6 +948,7 @@ func TestShellCommandCancellationDuringExecution(t *testing.T) {
 	registry := tools.NewRegistry()
 	registry.Register(tools.NewShellTool(4096))
 	loop := NewLoop(cfg, client, registry, sessions, store, false)
+	loop.SetConfirmIO(strings.NewReader("y\n"), io.Discard)
 
 	sess := &session.Session{ID: "shell-cancel-sess"}
 
@@ -1486,6 +1489,234 @@ func TestPromptFileDeadlineCancellationWithoutOrphanGoroutine(t *testing.T) {
 	if err2 != nil {
 		t.Fatalf("Prompt 2 failed on same os.Pipe after Prompt 1 cancellation! Zombie goroutine likely swallowed input: %v", err2)
 	}
+}
+
+func TestReadLineWithContextErrNoDeadlineKeepsPartialInput(t *testing.T) {
+	// Simulate user typing partial input "ye" without pressing newline before cancellation.
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	defer r.Close()
+	defer w.Close()
+
+	if _, err := w.Write([]byte("ye")); err != nil {
+		t.Fatalf("w.Write: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	val, err := readLineWithContext(ctx, r)
+	if err == nil {
+		t.Fatalf("expected error on cancelled readLineWithContext, got nil (must fail closed)")
+	}
+	if !strings.Contains(err.Error(), "confirmation cancelled") {
+		t.Errorf("expected confirmation cancelled error, got %v", err)
+	}
+	if val != "ye" {
+		t.Errorf("expected partial input %q to be preserved in return value, got %q", "ye", val)
+	}
+}
+
+func TestTerminalFdFlagsHelperProcess(t *testing.T) {
+	if os.Getenv("GO_WANT_TERMINAL_HELPER") != "1" {
+		return
+	}
+	// Helper signals readiness then blocks in readLineWithContext on stdin
+	fmt.Fprintln(os.Stdout, "READY")
+	_, _ = readLineWithContext(context.Background(), os.Stdin)
+	select {}
+}
+
+func TestTerminalFdFlagsUnchanged(t *testing.T) {
+	// Ground Rule: Never leave O_NONBLOCK set on terminal file descriptors!
+	// Verify that select-based readLineWithContext never modifies fcntl F_GETFL flags
+	// across normal reads, cancelled prompts, second-Ctrl-C force exits, and kill -9.
+
+	getFlags := func(f *os.File) int {
+		flags, _, err := syscall.Syscall(syscall.SYS_FCNTL, f.Fd(), syscall.F_GETFL, 0)
+		if err != 0 {
+			t.Fatalf("fcntl F_GETFL failed: %v", err)
+		}
+		return int(flags)
+	}
+
+	// 1. Context Cancellation
+	t.Run("ContextCancel", func(t *testing.T) {
+		r, w, err := os.Pipe()
+		if err != nil {
+			t.Fatalf("os.Pipe: %v", err)
+		}
+		defer r.Close()
+		defer w.Close()
+
+		origFlags := getFlags(r)
+		if origFlags&syscall.O_NONBLOCK != 0 {
+			t.Fatalf("initial pipe unexpectedly had O_NONBLOCK set")
+		}
+
+		ctxCancel, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+		_, _ = readLineWithContext(ctxCancel, r)
+		cancel()
+
+		flagsAfterCancel := getFlags(r)
+		if flagsAfterCancel != origFlags {
+			t.Errorf("flags changed after cancel: before=%d, after=%d", origFlags, flagsAfterCancel)
+		}
+		if flagsAfterCancel&syscall.O_NONBLOCK != 0 {
+			t.Errorf("SECURITY/TTY VIOLATION: O_NONBLOCK was left set after cancel!")
+		}
+	})
+
+	// 2. Normal Read Return
+	t.Run("NormalReturn", func(t *testing.T) {
+		r, w, err := os.Pipe()
+		if err != nil {
+			t.Fatalf("os.Pipe: %v", err)
+		}
+		defer r.Close()
+		defer w.Close()
+
+		origFlags := getFlags(r)
+		go func() {
+			time.Sleep(10 * time.Millisecond)
+			_, _ = w.Write([]byte("yes\n"))
+		}()
+		val, err := readLineWithContext(context.Background(), r)
+		if err != nil || val != "yes" {
+			t.Errorf("normal read failed: val=%q, err=%v", val, err)
+		}
+
+		flagsAfterRead := getFlags(r)
+		if flagsAfterRead != origFlags {
+			t.Errorf("flags changed after read: before=%d, after=%d", origFlags, flagsAfterRead)
+		}
+		if flagsAfterRead&syscall.O_NONBLOCK != 0 {
+			t.Errorf("SECURITY/TTY VIOLATION: O_NONBLOCK was left set after read!")
+		}
+	})
+
+	// 3. Second-Ctrl-C Force Exit
+	t.Run("SecondCtrlCForceExit", func(t *testing.T) {
+		pr, pw, err := os.Pipe()
+		if err != nil {
+			t.Fatalf("os.Pipe: %v", err)
+		}
+		defer pr.Close()
+		defer pw.Close()
+
+		origFlags := getFlags(pw)
+		if origFlags&syscall.O_NONBLOCK != 0 {
+			t.Fatalf("initial pipe unexpectedly had O_NONBLOCK set")
+		}
+
+		var cmd *exec.Cmd
+		if qemu := os.Getenv("QEMU_EXEC"); qemu != "" {
+			parts := strings.Fields(qemu)
+			args := append(parts[1:], os.Args[0], "-test.run=^TestTerminalFdFlagsHelperProcess$")
+			cmd = exec.Command(parts[0], args...)
+		} else {
+			cmd = exec.Command(os.Args[0], "-test.run=^TestTerminalFdFlagsHelperProcess$")
+		}
+		cmd.Env = append(os.Environ(), "GO_WANT_TERMINAL_HELPER=1")
+		cmd.Stdin = pr
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+
+		stdout, err := cmd.StdoutPipe()
+		if err != nil {
+			t.Fatalf("StdoutPipe: %v", err)
+		}
+
+		if err := cmd.Start(); err != nil {
+			t.Fatalf("cmd.Start: %v", err)
+		}
+
+		reader := bufio.NewReader(stdout)
+		line, err := reader.ReadString('\n')
+		if err != nil || !strings.Contains(line, "READY") {
+			_ = cmd.Process.Kill()
+			t.Fatalf("helper process failed to start: %v, line=%q", err, line)
+		}
+
+		// Helper is actively reading via readLineWithContext on pr
+		flagsDuringRead := getFlags(pw)
+		if flagsDuringRead&syscall.O_NONBLOCK != 0 {
+			t.Errorf("SECURITY/TTY VIOLATION: O_NONBLOCK was set on pipe during read!")
+		}
+
+		// Send SIGINT twice to simulate second Ctrl-C force exit
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGINT)
+		time.Sleep(20 * time.Millisecond)
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGINT)
+
+		_ = cmd.Wait()
+
+		flagsAfterSigint := getFlags(pw)
+		if flagsAfterSigint != origFlags {
+			t.Errorf("flags changed after SIGINT: before=%d, after=%d", origFlags, flagsAfterSigint)
+		}
+		if flagsAfterSigint&syscall.O_NONBLOCK != 0 {
+			t.Errorf("SECURITY/TTY VIOLATION: O_NONBLOCK was left set after SIGINT exit!")
+		}
+	})
+
+	// 4. kill -9 (SIGKILL) Abrupt Termination
+	t.Run("KillMinus9", func(t *testing.T) {
+		pr, pw, err := os.Pipe()
+		if err != nil {
+			t.Fatalf("os.Pipe: %v", err)
+		}
+		defer pr.Close()
+		defer pw.Close()
+
+		origFlags := getFlags(pw)
+		if origFlags&syscall.O_NONBLOCK != 0 {
+			t.Fatalf("initial pipe unexpectedly had O_NONBLOCK set")
+		}
+
+		var cmd *exec.Cmd
+		if qemu := os.Getenv("QEMU_EXEC"); qemu != "" {
+			parts := strings.Fields(qemu)
+			args := append(parts[1:], os.Args[0], "-test.run=^TestTerminalFdFlagsHelperProcess$")
+			cmd = exec.Command(parts[0], args...)
+		} else {
+			cmd = exec.Command(os.Args[0], "-test.run=^TestTerminalFdFlagsHelperProcess$")
+		}
+		cmd.Env = append(os.Environ(), "GO_WANT_TERMINAL_HELPER=1")
+		cmd.Stdin = pr
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+
+		stdout, err := cmd.StdoutPipe()
+		if err != nil {
+			t.Fatalf("StdoutPipe: %v", err)
+		}
+
+		if err := cmd.Start(); err != nil {
+			t.Fatalf("cmd.Start: %v", err)
+		}
+
+		reader := bufio.NewReader(stdout)
+		line, err := reader.ReadString('\n')
+		if err != nil || !strings.Contains(line, "READY") {
+			_ = cmd.Process.Kill()
+			t.Fatalf("helper process failed to start: %v, line=%q", err, line)
+		}
+
+		// Helper is actively reading via readLineWithContext on pr
+		// Kill abruptly with kill -9
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+
+		_ = cmd.Wait()
+
+		flagsAfterKill := getFlags(pw)
+		if flagsAfterKill != origFlags {
+			t.Errorf("flags changed after kill -9: before=%d, after=%d", origFlags, flagsAfterKill)
+		}
+		if flagsAfterKill&syscall.O_NONBLOCK != 0 {
+			t.Errorf("SECURITY/TTY VIOLATION: O_NONBLOCK was left set after kill -9!")
+		}
+	})
 }
 
 func TestTrimContextWhenSystemPromptPlusMemoryExceedsBudget(t *testing.T) {

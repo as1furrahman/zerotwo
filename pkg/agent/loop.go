@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"syscall"
 	"time"
 	"unicode"
 	"zerotwo/pkg/auth"
@@ -468,28 +469,59 @@ func (l *Loop) promptUserConfirmationWithDetails(ctx context.Context, details au
 	return fmt.Errorf("action denied by user")
 }
 
+// isFdReadable checks if fd has data ready to read, with a given timeout.
+// It uses syscall.Select without modifying any file descriptor flags (O_NONBLOCK is never touched).
+func isFdReadable(fd int, timeout time.Duration) (bool, error) {
+	var readFds syscall.FdSet
+	readFds.Bits[fd/64] |= 1 << (uint(fd) % 64)
+	tv := syscall.NsecToTimeval(timeout.Nanoseconds())
+	n, err := syscall.Select(fd+1, &readFds, nil, nil, &tv)
+	if err != nil {
+		if errors.Is(err, syscall.EINTR) {
+			return false, nil
+		}
+		return false, err
+	}
+	return n > 0, nil
+}
+
 // readLineWithContext reads a single newline-terminated line from r respecting ctx cancellation.
-// For deadline-capable streams (*os.File on Linux, including /dev/tty and os.Pipe), it reads synchronously
-// with a brief deadline, completely avoiding background reader goroutines that could linger and swallow
-// subsequent keystrokes in interactive REPL sessions.
+// For *os.File handles (/dev/tty, stdin, ptys, pipes), it uses select-based polling without modifying
+// any terminal flags (O_NONBLOCK is NEVER set or altered), completely eliminating orphaned background
+// reader goroutines while ensuring file descriptor flags remain unchanged across cancellations and exits.
+//
+// Partial Input Design Note:
+// When a confirmation prompt is cancelled (e.g. user presses Ctrl-C / SIGINT), partial keystrokes
+// are discarded and do NOT survive to the next prompt. This prevents accidental execution of subsequent
+// actions (e.g. leftover 'y' keystrokes from an aborted prompt silently auto-confirming a subsequent prompt).
+// Additionally, on real POSIX terminals in canonical mode (ICANON), the kernel tty line discipline automatically
+// flushes input queues on VINTR (SIGINT), ensuring discarded partial input matches POSIX terminal behavior.
 func readLineWithContext(ctx context.Context, r io.Reader) (string, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
-	if deadlineable, ok := r.(interface{ SetReadDeadline(time.Time) error }); ok {
-		defer deadlineable.SetReadDeadline(time.Time{})
-		var line []byte
-		oneByte := make([]byte, 1)
+	var line []byte
+	oneByte := make([]byte, 1)
+
+	if f, ok := r.(*os.File); ok {
+		fd := int(f.Fd())
 		for {
 			select {
 			case <-ctx.Done():
-				return "", fmt.Errorf("confirmation cancelled: %w", ctx.Err())
+				return string(line), fmt.Errorf("confirmation cancelled: %w", ctx.Err())
 			default:
 			}
 
-			_ = deadlineable.SetReadDeadline(time.Now().Add(50 * time.Millisecond))
-			n, err := r.Read(oneByte)
+			ready, err := isFdReadable(fd, 50*time.Millisecond)
+			if err != nil {
+				return string(line), err
+			}
+			if !ready {
+				continue
+			}
+
+			n, err := f.Read(oneByte)
 			if n > 0 {
 				if oneByte[0] == '\n' {
 					break
@@ -497,22 +529,19 @@ func readLineWithContext(ctx context.Context, r io.Reader) (string, error) {
 				line = append(line, oneByte[0])
 			}
 			if err != nil {
-				if os.IsTimeout(err) || errors.Is(err, os.ErrDeadlineExceeded) {
-					continue
-				}
 				if err == io.EOF {
 					if len(line) > 0 {
 						break
 					}
-					return "", io.EOF
+					return string(line), io.EOF
 				}
-				return "", err
+				return string(line), err
 			}
 		}
 		return string(line), nil
 	}
 
-	// Fallback for non-deadline readers (such as in-memory buffers or io.Pipe in unit tests)
+	// Fallback for non-file mock readers in unit tests (e.g. strings.Reader, bytes.Buffer)
 	type readResult struct {
 		line string
 		err  error
@@ -520,16 +549,16 @@ func readLineWithContext(ctx context.Context, r io.Reader) (string, error) {
 	ch := make(chan readResult, 1)
 	go func() {
 		reader := bufio.NewReader(r)
-		line, err := reader.ReadString('\n')
-		ch <- readResult{line: line, err: err}
+		lineStr, err := reader.ReadString('\n')
+		ch <- readResult{line: lineStr, err: err}
 	}()
 
 	select {
 	case <-ctx.Done():
-		return "", fmt.Errorf("confirmation cancelled: %w", ctx.Err())
+		return string(line), fmt.Errorf("confirmation cancelled: %w", ctx.Err())
 	case res := <-ch:
 		if res.err != nil && res.err != io.EOF {
-			return "", res.err
+			return res.line, res.err
 		}
 		return res.line, nil
 	}
