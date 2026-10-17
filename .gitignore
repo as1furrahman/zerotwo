@@ -15,5 +15,17 @@ bin/
 sessions/
 devtest/
 
+# Local sensitive configuration & credentials
+config.json
+.env
+.env.*
+*.env
+*.key
+*.pem
+*.token
+credentials/
+MEMORY.md
+
 # OS artifacts
 .DS_Store
+
