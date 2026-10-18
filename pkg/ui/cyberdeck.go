@@ -39,10 +39,10 @@ func CyberdeckBanner(model, sessionID, workspace string, ramBlocks int, totalBlo
 	var line1 string
 	if cols >= 75 {
 		// Breakpoint 1: Standard Desktop / Wide terminal
-		line1 = fmt.Sprintf(" ❖ CYBERDECK: ZEROTWO · PISTIL: CODE:002 · RAM: %s · %s", meter, truncateStr(model, targetW-58))
+		line1 = fmt.Sprintf("❖ CYBERDECK: ZEROTWO · PISTIL: CODE:002 · RAM: %s · %s", meter, truncateStr(model, targetW-58))
 	} else if cols >= 58 {
 		// Breakpoint 2: Kindle Portrait (58-74 cols)
-		line1 = fmt.Sprintf(" ❖ CYBERDECK: ZEROTWO · PISTIL: 002 · RAM: %s · %s", meter, truncateStr(displayModel, targetW-50))
+		line1 = fmt.Sprintf("❖ CYBERDECK: ZEROTWO · PISTIL: 002 · RAM: %s · %s", meter, truncateStr(displayModel, targetW-50))
 	} else {
 		// Breakpoint 3: Kindle Narrow / Keyboard open (< 58 cols)
 		cRamNarrow := (ramBlocks * 3) / totalBlocks
@@ -50,7 +50,7 @@ func CyberdeckBanner(model, sessionID, workspace string, ramBlocks int, totalBlo
 			cRamNarrow = 3
 		}
 		meterNarrow := strings.Repeat("▰", cRamNarrow) + strings.Repeat("▱", 3-cRamNarrow)
-		line1 = fmt.Sprintf(" ❖ ZEROTWO // 002 · %s · %s", meterNarrow, truncateStr(displayModel, targetW-24))
+		line1 = fmt.Sprintf("❖ ZEROTWO // 002 · %s · %s", meterNarrow, truncateStr(displayModel, targetW-24))
 	}
 
 	line1Runes := []rune(line1)
@@ -70,37 +70,28 @@ func NeuralLinkEngagement(actionDesc string) string {
 		targetW = 36
 	}
 
-	if cols < 58 {
-		badge := "──[ ❖ LINK:ACTIVE ]"
-		msg := "quickhack engaged..."
+	badge := "── ❖ LINK:ACTIVE "
+	msg := "quickhack engaged"
+	if cols >= 58 {
+		badge = "── ❖ BREACH_PROTOCOL // CODE:002 "
 		if actionDesc != "" {
-			avail := targetW - len([]rune(badge)) - 6
-			if avail < 8 {
-				avail = 8
-			}
-			msg = truncateStr(actionDesc, avail)
+			msg = actionDesc
+		} else {
+			msg = "neural resonance established"
 		}
-		pad := targetW - len([]rune(badge)) - len([]rune(msg)) - 4
-		if pad < 2 {
-			pad = 2
-		}
-		return fmt.Sprintf("%s── %s %s\n", badge, msg, strings.Repeat("─", pad))
+	} else if actionDesc != "" {
+		msg = actionDesc
 	}
 
-	badge := "──[ ❖ BREACH_PROTOCOL // CODE:002 ]"
-	msg := actionDesc
-	if msg == "" {
-		msg = "neural resonance established"
-	}
-	avail := targetW - len([]rune(badge)) - 6
+	avail := targetW - len([]rune(badge)) - 4
 	if len([]rune(msg)) > avail {
 		msg = truncateStr(msg, avail)
 	}
-	pad := targetW - len([]rune(badge)) - len([]rune(msg)) - 4
+	pad := targetW - len([]rune(badge)) - len([]rune(msg)) - 2
 	if pad < 2 {
 		pad = 2
 	}
-	return fmt.Sprintf("%s── %s %s\n", badge, msg, strings.Repeat("─", pad))
+	return fmt.Sprintf("%s%s %s\n", badge, msg, strings.Repeat("─", pad))
 }
 
 // AssistantHeader renders the aesthetic Cyberdeck speaker header for Zero Two.
@@ -113,9 +104,9 @@ func AssistantHeader() string {
 
 	var badge string
 	if cols >= 62 {
-		badge = "──[ ❖ ZERO TWO // CODE:002 ]"
+		badge = "── ❖ ZERO TWO // CODE:002 "
 	} else {
-		badge = "──[ ❖ ZERO TWO ]"
+		badge = "── ❖ ZERO TWO "
 	}
 
 	pad := targetW - len([]rune(badge))
@@ -153,32 +144,33 @@ func QuickhackCard(toolName, cmdOrArgs, result string) string {
 		}
 	}
 
-	var title string
+	var label string
 	if desc != "" {
-		title = fmt.Sprintf(" ⚡ QUICKHACK [%s] %s ", toolName, desc)
+		label = fmt.Sprintf("── ⚡ QUICKHACK [%s] %s ", toolName, desc)
 	} else {
-		title = fmt.Sprintf(" ⚡ QUICKHACK [%s] ", toolName)
+		label = fmt.Sprintf("── ⚡ QUICKHACK [%s] ", toolName)
 	}
 
-	maxTitleLen := targetW - 6
-	if maxTitleLen < 14 {
-		maxTitleLen = 14
-	}
-	if len([]rune(title)) > maxTitleLen {
-		title = truncateStr(title, maxTitleLen)
+	maxLabelLen := targetW - 4
+	if len([]rune(label)) > maxLabelLen {
+		label = truncateStr(label, maxLabelLen) + " "
 	}
 
-	badge := fmt.Sprintf("──[%s]", title)
-	padTop := targetW - len([]rune(badge))
+	padTop := targetW - len([]rune(label))
 	if padTop < 2 {
 		padTop = 2
 	}
-	topLine := badge + strings.Repeat("─", padTop)
+	topLine := label + strings.Repeat("─", padTop)
 
 	var botLine string
 	if result != "" {
 		resLines := strings.Split(strings.TrimSpace(result), "\n")
 		firstLine := strings.TrimSpace(resLines[0])
+		firstLine = strings.TrimPrefix(firstLine, "• ")
+		firstLine = strings.TrimPrefix(firstLine, "- ")
+		firstLine = strings.TrimPrefix(firstLine, "* ")
+		firstLine = strings.TrimSpace(firstLine)
+
 		moreInfo := ""
 		if len(resLines) > 1 {
 			moreInfo = fmt.Sprintf(" [+%d lines]", len(resLines)-1)
@@ -214,17 +206,17 @@ func CyberdeckDock() string {
 
 	var leftBadge, rightMenu string
 	if cols >= 80 {
-		leftBadge = "──[ ❖ CYBERDECK:ACTIVE // CODE:002 ]"
-		rightMenu = "[ ? MENU  c SHARDS  x DUMP  q QUIT ]──"
+		leftBadge = "── ❖ CYBERDECK:ACTIVE // CODE:002 "
+		rightMenu = " ? MENU · c SHARDS · x DUMP · q QUIT ──"
 	} else if cols >= 62 {
-		leftBadge = "──[ ❖ DECK:ACTIVE ]"
-		rightMenu = "[ ? MENU  c SHARDS  q QUIT ]──"
+		leftBadge = "── ❖ DECK:ACTIVE "
+		rightMenu = " ? MENU · c SHARDS · q QUIT ──"
 	} else if cols >= 44 {
-		leftBadge = "──[ ❖ DECK:ACTIVE ]"
-		rightMenu = "[ ? HELP  q QUIT ]──"
+		leftBadge = "── ❖ DECK:ACTIVE "
+		rightMenu = " ? HELP · q QUIT ──"
 	} else {
-		leftBadge = "──[ 002 ]"
-		rightMenu = "[ ? HELP ]──"
+		leftBadge = "── ❖ 002 "
+		rightMenu = " ? HELP ──"
 	}
 
 	topUsed := len([]rune(leftBadge)) + len([]rune(rightMenu))
@@ -251,12 +243,12 @@ func ToolAuthCard(action, target, scope, warning string) string {
 		targetW = 36
 	}
 
-	innerW := targetW - 5 // between │ and │
+	innerW := targetW - 4 // between │ and │
 	if innerW < 26 {
 		innerW = 26
 	}
 
-	titleBadge := " ┌──[ ❖ NEURAL AUTHORIZATION ]"
+	titleBadge := "┌──[ ❖ NEURAL AUTHORIZATION ]"
 	padTop := targetW - len([]rune(titleBadge)) - 1
 	if padTop < 1 {
 		padTop = 1
@@ -274,7 +266,7 @@ func ToolAuthCard(action, target, scope, warning string) string {
 		if pad < 0 {
 			pad = 0
 		}
-		return fmt.Sprintf(" │ %s%s%s │\n", label, tVal, strings.Repeat(" ", pad))
+		return fmt.Sprintf("│ %s%s%s │\n", label, tVal, strings.Repeat(" ", pad))
 	}
 
 	var sb strings.Builder
@@ -292,7 +284,7 @@ func ToolAuthCard(action, target, scope, warning string) string {
 	if warning != "" {
 		sb.WriteString(formatLine("Notice:    ", warning))
 	}
-	botLine := " └──" + strings.Repeat("─", targetW-5) + "┘\n"
+	botLine := "└──" + strings.Repeat("─", targetW-4) + "┘\n"
 	sb.WriteString(botLine)
 	sb.WriteString(" Confirm execution? [y/N]: ")
 	return sb.String()
@@ -400,7 +392,7 @@ func MarkdownToTerm(content string) string {
 	content = AlignMarkdownTables(content)
 
 	cols := GetTerminalCols()
-	targetW := cols - 2
+	targetW := cols - 1
 	if targetW < 36 {
 		targetW = 36
 	}
@@ -416,18 +408,18 @@ func formatCodeBlock(lang, code string) string {
 		targetW = 36
 	}
 
-	badge := " ┌──[ CODE ]"
+	badge := "┌──[ CODE ]"
 	if lang != "" {
-		badge = fmt.Sprintf(" ┌──[ CODE: %s ]", strings.ToUpper(lang))
+		badge = fmt.Sprintf("┌──[ CODE: %s ]", strings.ToUpper(lang))
 	}
 	padTop := targetW - len([]rune(badge)) - 1
 	if padTop < 1 {
 		padTop = 1
 	}
 	topLine := badge + strings.Repeat("─", padTop) + "┐"
-	botLine := " └──" + strings.Repeat("─", targetW-5) + "┘"
+	botLine := "└──" + strings.Repeat("─", targetW-4) + "┘"
 
-	innerW := targetW - 5
+	innerW := targetW - 4
 	if innerW < 26 {
 		innerW = 26
 	}
@@ -448,7 +440,7 @@ func formatCodeBlock(lang, code string) string {
 		if pad < 0 {
 			pad = 0
 		}
-		sb.WriteString(fmt.Sprintf(" │ %s%s │\n", expanded, strings.Repeat(" ", pad)))
+		sb.WriteString(fmt.Sprintf("│ %s%s │\n", expanded, strings.Repeat(" ", pad)))
 	}
 	sb.WriteString(botLine)
 	sb.WriteString("\n")

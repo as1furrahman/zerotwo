@@ -301,7 +301,9 @@ func main() {
 
 		ctx, cancel := createInterruptContext()
 
-		fmt.Print(ui.NeuralLinkEngagement("neural resonance engaged · streaming quickhack..."))
+		if cfg.Provider.Stream {
+			fmt.Print(ui.NeuralLinkEngagement("streaming quickhack..."))
+		}
 
 		firstToken := true
 		var tokenCb provider.TokenCallback
@@ -419,43 +421,43 @@ func printCyberdeckPalette() {
 	if cols > 80 {
 		cols = 80
 	}
-	w := cols - 4
+	w := cols - 2
 	if w < 36 {
 		w = 36
 	}
 
-	title := " ╔═[ ❖ ZEROTWO // PALETTE ]"
-	padTop := w - len([]rune(title)) + 2
-	if padTop < 1 {
-		padTop = 1
-	}
-	topLine := title + strings.Repeat("═", padTop) + "╗\n"
+	topLine := "╔" + strings.Repeat("═", w-2) + "╗\n"
+	midLine := "╠" + strings.Repeat("═", w-2) + "╣\n"
+	botLine := "╚" + strings.Repeat("═", w-2) + "╝\n"
 
 	formatRow := func(text string) string {
 		tVal := text
-		if len([]rune(tVal)) > w-2 {
-			tVal = string([]rune(tVal)[:w-5]) + "..."
+		innerW := w - 4 // between "║ " and " ║"
+		if len([]rune(tVal)) > innerW {
+			tVal = string([]rune(tVal)[:innerW-3]) + "..."
 		}
-		pad := w - 2 - len([]rune(tVal))
+		pad := innerW - len([]rune(tVal))
 		if pad < 0 {
 			pad = 0
 		}
-		return fmt.Sprintf(" ║ %s%s ║\n", tVal, strings.Repeat(" ", pad))
+		return fmt.Sprintf("║ %s%s ║\n", tVal, strings.Repeat(" ", pad))
 	}
 
 	var sb strings.Builder
 	sb.WriteString("\n" + topLine)
+	sb.WriteString(formatRow("❖ ZEROTWO // COMMAND PALETTE"))
+	sb.WriteString(midLine)
 	sb.WriteString(formatRow("c, /shards   · Reading highlights / shards"))
 	sb.WriteString(formatRow("x, /export   · Compile offline data dump"))
 	sb.WriteString(formatRow("/status      · Telemetry & provider info"))
 	sb.WriteString(formatRow("/clear       · Purge conversation history"))
 	sb.WriteString(formatRow("/memory      · View neural memory store"))
 	sb.WriteString(formatRow("q, exit      · Jack out of cyberdeck"))
-	sb.WriteString(" ╠" + strings.Repeat("═", w) + "╣\n")
+	sb.WriteString(midLine)
 	sb.WriteString(formatRow("-m \"prompt\"  · Single-shot query mode"))
 	sb.WriteString(formatRow("-e \"task\"    · Shell assistant mode"))
 	sb.WriteString(formatRow("-y, -yes     · Auto-approve quickhacks"))
-	sb.WriteString(" ╚" + strings.Repeat("═", w) + "╝\n")
+	sb.WriteString(botLine)
 	fmt.Print(sb.String())
 }
 

@@ -129,7 +129,7 @@ func RenderPaged(text string) {
 			}
 			fmt.Fprintf(tty, "\033[7m%s\033[0m", prompt)
 			ans, _ := reader.ReadString('\n')
-			fmt.Fprint(tty, "\r\033[K") // clear prompt line
+			fmt.Fprint(tty, "\033[1A\r\033[2K") // clear prompt line by moving up to echoed prompt
 			if strings.TrimSpace(ans) == "q" {
 				break
 			}
