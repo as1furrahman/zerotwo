@@ -190,3 +190,49 @@ func TestFencedCodeBlock(t *testing.T) {
 	}
 }
 
+func TestPixelPerfectNarrowKindleAudit(t *testing.T) {
+	origCols := os.Getenv("COLUMNS")
+	defer func() {
+		if origCols != "" {
+			os.Setenv("COLUMNS", origCols)
+		} else {
+			os.Unsetenv("COLUMNS")
+		}
+	}()
+	os.Setenv("COLUMNS", "48")
+
+	components := map[string]string{
+		"banner":        CyberdeckBanner("openai/gpt-oss-120b", "default", "/mnt/debian", 6, 10),
+		"dock":          CyberdeckDock(),
+		"quickhack":     QuickhackCard("get_system_status", "{}", "CPU Load: 0.49, 0.47\nMem: 200MB free"),
+		"quickhack_cmd": QuickhackCard("shell", `{"command": "ls -la /mnt/us"}`, "file1\nfile2\nfile3"),
+		"engagement":    NeuralLinkEngagement("quickhack engaged..."),
+		"assistant_hdr": AssistantHeader(),
+		"auth_card":     ToolAuthCard("shell", "rm -rf /tmp/foo", "local", "destructive"),
+	}
+
+	for name, comp := range components {
+		// 1. Assert no floating/broken rounded corner stubs
+		for _, badRune := range []string{"╭", "╮", "╰", "╯"} {
+			if strings.Contains(comp, badRune) {
+				t.Errorf("component %s contains broken corner %q: %s", name, badRune, comp)
+			}
+		}
+		// 2. Assert no double guillemet broken chevron
+		if strings.Contains(comp, "❯") {
+			t.Errorf("component %s contains unaligned chevron '❯' (renders as '»' in DejaVu Sans Mono): %s", name, comp)
+		}
+		// 3. Assert width within 46 columns (cols - 2 margin)
+		lines := strings.Split(comp, "\n")
+		for _, l := range lines {
+			clean := regexp.MustCompile(`\x1b\[[0-9;]*m`).ReplaceAllString(l, "")
+			clean = strings.TrimPrefix(clean, "\r")
+			runeCount := len([]rune(clean))
+			if runeCount > 46 {
+				t.Errorf("component %s line exceeded 46 cols (len=%d): %q", name, runeCount, clean)
+			}
+		}
+	}
+}
+
+

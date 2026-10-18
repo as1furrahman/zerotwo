@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -38,10 +39,10 @@ func CyberdeckBanner(model, sessionID, workspace string, ramBlocks int, totalBlo
 	var line1 string
 	if cols >= 75 {
 		// Breakpoint 1: Standard Desktop / Wide terminal
-		line1 = fmt.Sprintf(" ◢◤ CYBERDECK: ZEROTWO · PISTIL: CODE:002 · RAM: %s · %s", meter, truncateStr(model, targetW-58))
+		line1 = fmt.Sprintf(" ❖ CYBERDECK: ZEROTWO · PISTIL: CODE:002 · RAM: %s · %s", meter, truncateStr(model, targetW-58))
 	} else if cols >= 58 {
 		// Breakpoint 2: Kindle Portrait (58-74 cols)
-		line1 = fmt.Sprintf(" ◢◤ CYBERDECK: ZEROTWO · PISTIL: 002 · RAM: %s · %s", meter, truncateStr(displayModel, targetW-50))
+		line1 = fmt.Sprintf(" ❖ CYBERDECK: ZEROTWO · PISTIL: 002 · RAM: %s · %s", meter, truncateStr(displayModel, targetW-50))
 	} else {
 		// Breakpoint 3: Kindle Narrow / Keyboard open (< 58 cols)
 		cRamNarrow := (ramBlocks * 3) / totalBlocks
@@ -49,7 +50,7 @@ func CyberdeckBanner(model, sessionID, workspace string, ramBlocks int, totalBlo
 			cRamNarrow = 3
 		}
 		meterNarrow := strings.Repeat("▰", cRamNarrow) + strings.Repeat("▱", 3-cRamNarrow)
-		line1 = fmt.Sprintf(" ◢◤ ZEROTWO // 002 · %s · %s", meterNarrow, truncateStr(displayModel, targetW-24))
+		line1 = fmt.Sprintf(" ❖ ZEROTWO // 002 · %s · %s", meterNarrow, truncateStr(displayModel, targetW-24))
 	}
 
 	line1Runes := []rune(line1)
@@ -70,23 +71,23 @@ func NeuralLinkEngagement(actionDesc string) string {
 	}
 
 	if cols < 58 {
-		badge := " ◢◤ [ ❖ LINK:ACTIVE ] "
+		badge := "──[ ❖ LINK:ACTIVE ]"
 		msg := "quickhack engaged..."
 		if actionDesc != "" {
-			avail := targetW - len([]rune(badge)) - 4
+			avail := targetW - len([]rune(badge)) - 6
 			if avail < 8 {
 				avail = 8
 			}
 			msg = truncateStr(actionDesc, avail)
 		}
-		pad := targetW - len([]rune(badge)) - len([]rune(msg)) - 2
-		if pad < 1 {
-			pad = 1
+		pad := targetW - len([]rune(badge)) - len([]rune(msg)) - 4
+		if pad < 2 {
+			pad = 2
 		}
-		return fmt.Sprintf("%s%s %s\n", badge, msg, strings.Repeat("─", pad))
+		return fmt.Sprintf("%s── %s %s\n", badge, msg, strings.Repeat("─", pad))
 	}
 
-	badge := " ◢◤ [ ❖ BREACH_PROTOCOL ] "
+	badge := "──[ ❖ BREACH_PROTOCOL // CODE:002 ]"
 	msg := actionDesc
 	if msg == "" {
 		msg = "neural resonance established"
@@ -96,8 +97,8 @@ func NeuralLinkEngagement(actionDesc string) string {
 		msg = truncateStr(msg, avail)
 	}
 	pad := targetW - len([]rune(badge)) - len([]rune(msg)) - 4
-	if pad < 1 {
-		pad = 1
+	if pad < 2 {
+		pad = 2
 	}
 	return fmt.Sprintf("%s── %s %s\n", badge, msg, strings.Repeat("─", pad))
 }
@@ -112,9 +113,9 @@ func AssistantHeader() string {
 
 	var badge string
 	if cols >= 62 {
-		badge = " ◢◤ [ ❖ ZERO TWO // CODE:002 ] "
+		badge = "──[ ❖ ZERO TWO // CODE:002 ]"
 	} else {
-		badge = " ◢◤ [ ❖ ZERO TWO ] "
+		badge = "──[ ❖ ZERO TWO ]"
 	}
 
 	pad := targetW - len([]rune(badge))
@@ -132,21 +133,47 @@ func QuickhackCard(toolName, cmdOrArgs, result string) string {
 		targetW = 36
 	}
 
-	badge := fmt.Sprintf(" ╭─[ ⚡ QUICKHACK [%s] ]", toolName)
 	cleanCmd := strings.ReplaceAll(strings.TrimSpace(cmdOrArgs), "\n", " ")
-
-	availCmd := targetW - len([]rune(badge)) - 9
-	if availCmd < 6 {
-		availCmd = 6
+	desc := ""
+	if cleanCmd != "" && cleanCmd != "{}" {
+		var argMap map[string]interface{}
+		if err := json.Unmarshal([]byte(cleanCmd), &argMap); err == nil {
+			if c, ok := argMap["command"].(string); ok && c != "" {
+				desc = "$ " + c
+			} else if p, ok := argMap["path"].(string); ok && p != "" {
+				desc = p
+			} else if u, ok := argMap["url"].(string); ok && u != "" {
+				desc = u
+			} else if q, ok := argMap["query"].(string); ok && q != "" {
+				desc = q
+			}
+		}
+		if desc == "" {
+			desc = cleanCmd
+		}
 	}
-	tCmd := truncateStr(cleanCmd, availCmd)
 
-	headerPart := fmt.Sprintf("%s ── $ %s ", badge, tCmd)
-	topPad := targetW - len([]rune(headerPart)) - 1
-	if topPad < 1 {
-		topPad = 1
+	var title string
+	if desc != "" {
+		title = fmt.Sprintf(" ⚡ QUICKHACK [%s] %s ", toolName, desc)
+	} else {
+		title = fmt.Sprintf(" ⚡ QUICKHACK [%s] ", toolName)
 	}
-	topLine := headerPart + strings.Repeat("─", topPad) + "╮"
+
+	maxTitleLen := targetW - 6
+	if maxTitleLen < 14 {
+		maxTitleLen = 14
+	}
+	if len([]rune(title)) > maxTitleLen {
+		title = truncateStr(title, maxTitleLen)
+	}
+
+	badge := fmt.Sprintf("──[%s]", title)
+	padTop := targetW - len([]rune(badge))
+	if padTop < 2 {
+		padTop = 2
+	}
+	topLine := badge + strings.Repeat("─", padTop)
 
 	var botLine string
 	if result != "" {
@@ -156,19 +183,14 @@ func QuickhackCard(toolName, cmdOrArgs, result string) string {
 		if len(resLines) > 1 {
 			moreInfo = fmt.Sprintf(" [+%d lines]", len(resLines)-1)
 		}
-		availRes := targetW - len([]rune(" ╰─▶ ")) - len([]rune(moreInfo)) - 4
+		availRes := targetW - len([]rune("  › ")) - len([]rune(moreInfo))
 		if availRes < 8 {
 			availRes = 8
 		}
 		tRes := truncateStr(firstLine, availRes)
-		botPart := fmt.Sprintf(" ╰─▶ %s%s ", tRes, moreInfo)
-		botPad := targetW - len([]rune(botPart)) - 1
-		if botPad < 1 {
-			botPad = 1
-		}
-		botLine = botPart + strings.Repeat("─", botPad) + "╯"
+		botLine = fmt.Sprintf("  › %s%s", tRes, moreInfo)
 	} else {
-		botLine = " ╰" + strings.Repeat("─", targetW-3) + "╯"
+		botLine = "  › executing..."
 	}
 
 	clamp := func(line string) string {
@@ -192,17 +214,17 @@ func CyberdeckDock() string {
 
 	var leftBadge, rightMenu string
 	if cols >= 80 {
-		leftBadge = " ╭──[ ❖ CYBERDECK:ACTIVE // CODE:002 ]"
-		rightMenu = "[ ⏎ RUN  ? MENU  c SHARDS  x DUMP  q QUIT ]──╮"
+		leftBadge = "──[ ❖ CYBERDECK:ACTIVE // CODE:002 ]"
+		rightMenu = "[ ? MENU  c SHARDS  x DUMP  q QUIT ]──"
 	} else if cols >= 62 {
-		leftBadge = " ╭──[ ❖ DECK:ACTIVE ]"
-		rightMenu = "[ ⏎ RUN  ? MENU  c SHARDS  q QUIT ]──╮"
-	} else if cols >= 46 {
-		leftBadge = " ╭──[ 002 ]"
-		rightMenu = "[ ↵ RUN  ? HELP  q QUIT ]──╮"
+		leftBadge = "──[ ❖ DECK:ACTIVE ]"
+		rightMenu = "[ ? MENU  c SHARDS  q QUIT ]──"
+	} else if cols >= 44 {
+		leftBadge = "──[ ❖ DECK:ACTIVE ]"
+		rightMenu = "[ ? HELP  q QUIT ]──"
 	} else {
-		leftBadge = " ╭──[ 002 ]"
-		rightMenu = "[ ? HELP  q QUIT ]──╮"
+		leftBadge = "──[ 002 ]"
+		rightMenu = "[ ? HELP ]──"
 	}
 
 	topUsed := len([]rune(leftBadge)) + len([]rune(rightMenu))
@@ -211,13 +233,13 @@ func CyberdeckDock() string {
 		pad = 1
 	}
 	topLine := leftBadge + strings.Repeat("─", pad) + rightMenu
-	prompt := " ╰─❯ \033[1;7m 002:darling \033[0m › "
 
 	r := []rune(topLine)
 	if len(r) > targetW {
 		topLine = string(r[:targetW])
 	}
 
+	prompt := "002:darling › "
 	return fmt.Sprintf("\r%s\n%s", topLine, prompt)
 }
 
@@ -229,17 +251,17 @@ func ToolAuthCard(action, target, scope, warning string) string {
 		targetW = 36
 	}
 
-	innerW := targetW - 4 // between │ and │
-	if innerW < 28 {
-		innerW = 28
+	innerW := targetW - 5 // between │ and │
+	if innerW < 26 {
+		innerW = 26
 	}
 
-	titleBadge := " ╭──[ ❖ NEURAL AUTHORIZATION ]"
+	titleBadge := " ┌──[ ❖ NEURAL AUTHORIZATION ]"
 	padTop := targetW - len([]rune(titleBadge)) - 1
 	if padTop < 1 {
 		padTop = 1
 	}
-	topLine := titleBadge + strings.Repeat("─", padTop) + "╮\n"
+	topLine := titleBadge + strings.Repeat("─", padTop) + "┐\n"
 
 	formatLine := func(label, val string) string {
 		cleanVal := strings.ReplaceAll(strings.TrimSpace(val), "\n", " ")
@@ -270,7 +292,7 @@ func ToolAuthCard(action, target, scope, warning string) string {
 	if warning != "" {
 		sb.WriteString(formatLine("Notice:    ", warning))
 	}
-	botLine := " ╰" + strings.Repeat("─", targetW-3) + "╯\n"
+	botLine := " └──" + strings.Repeat("─", targetW-5) + "┘\n"
 	sb.WriteString(botLine)
 	sb.WriteString(" Confirm execution? [y/N]: ")
 	return sb.String()
@@ -394,20 +416,20 @@ func formatCodeBlock(lang, code string) string {
 		targetW = 36
 	}
 
-	badge := " ╭──[ CODE ]"
+	badge := " ┌──[ CODE ]"
 	if lang != "" {
-		badge = fmt.Sprintf(" ╭──[ CODE: %s ]", strings.ToUpper(lang))
+		badge = fmt.Sprintf(" ┌──[ CODE: %s ]", strings.ToUpper(lang))
 	}
 	padTop := targetW - len([]rune(badge)) - 1
 	if padTop < 1 {
 		padTop = 1
 	}
-	topLine := badge + strings.Repeat("─", padTop) + "╮"
-	botLine := " ╰" + strings.Repeat("─", targetW-3) + "╯"
+	topLine := badge + strings.Repeat("─", padTop) + "┐"
+	botLine := " └──" + strings.Repeat("─", targetW-5) + "┘"
 
-	innerW := targetW - 4
-	if innerW < 28 {
-		innerW = 28
+	innerW := targetW - 5
+	if innerW < 26 {
+		innerW = 26
 	}
 
 	var sb strings.Builder
@@ -447,11 +469,12 @@ func WrapText(text string, maxCols int) string {
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		// Don't re-wrap table borders, box drawing borders, or headers
-		if strings.HasPrefix(trimmed, "│") || strings.HasPrefix(trimmed, "╭") ||
-			strings.HasPrefix(trimmed, "╰") || strings.HasPrefix(trimmed, "├") ||
-			strings.HasPrefix(trimmed, "╔") || strings.HasPrefix(trimmed, "╚") ||
-			strings.HasPrefix(trimmed, "║") || strings.HasPrefix(trimmed, "╠") ||
-			strings.HasPrefix(trimmed, "◢◤") {
+		if strings.HasPrefix(trimmed, "│") || strings.HasPrefix(trimmed, "┌") ||
+			strings.HasPrefix(trimmed, "└") || strings.HasPrefix(trimmed, "├") ||
+			strings.HasPrefix(trimmed, "─") || strings.HasPrefix(trimmed, "╔") ||
+			strings.HasPrefix(trimmed, "╚") || strings.HasPrefix(trimmed, "║") ||
+			strings.HasPrefix(trimmed, "╠") || strings.HasPrefix(trimmed, "╭") ||
+			strings.HasPrefix(trimmed, "╰") || strings.HasPrefix(trimmed, "❖") {
 			result = append(result, line)
 			continue
 		}
