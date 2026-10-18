@@ -316,10 +316,11 @@ func main() {
 		}
 
 		response, err := loop.Run(ctx, input, sess, tokenCb)
+		wasCancelled := ctx.Err() == context.Canceled
 		cancel()
 
 		if err != nil {
-			if ctx.Err() == context.Canceled {
+			if wasCancelled {
 				fmt.Fprintln(os.Stderr, "\n^C [request cancelled]")
 			} else {
 				fmt.Fprintf(os.Stderr, "\n\033[31merror: %v\033[0m\n", err)

@@ -102,6 +102,12 @@ func (l *Loop) Run(ctx context.Context, userMessage string, sess *session.Sessio
 		estTokensBefore := l.EstimateMessagesTokens(trimmedMsgs)
 
 		resp, err := l.client.Complete(ctx, req, onToken)
+		if err != nil && (strings.Contains(err.Error(), "413") || strings.Contains(err.Error(), "Request too large") || strings.Contains(err.Error(), "rate_limit_exceeded")) && len(trimmedMsgs) > 2 {
+			// Provider rejected request due to rate limit or token payload ceiling; aggressively trim to system prompt + last message and retry
+			retryMsgs := []provider.Message{trimmedMsgs[0], trimmedMsgs[len(trimmedMsgs)-1]}
+			req.Messages = retryMsgs
+			resp, err = l.client.Complete(ctx, req, onToken)
+		}
 		if err != nil {
 			if completedLen > origLen {
 				sess.Messages = sess.Messages[:completedLen]
