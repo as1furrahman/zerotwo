@@ -234,5 +234,3 @@ func TestPixelPerfectNarrowKindleAudit(t *testing.T) {
 		}
 	}
 }
-
-

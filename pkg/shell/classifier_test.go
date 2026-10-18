@@ -226,4 +226,3 @@ func TestDevNullRedirectionReadOnly(t *testing.T) {
 		}
 	}
 }
-
