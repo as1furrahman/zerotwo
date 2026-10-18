@@ -483,7 +483,7 @@ func printCyberdeckPalette() {
 
 	var sb strings.Builder
 	sb.WriteString("\n" + topLine)
-	sb.WriteString(formatRow("❖ ZEROTWO // COMMAND PALETTE"))
+	sb.WriteString(formatRow("✦ ZEROTWO // COMMAND PALETTE"))
 	sb.WriteString(midLine)
 	sb.WriteString(formatRow("c, /shards   · Reading highlights / shards"))
 	sb.WriteString(formatRow("x, /export   · Compile offline data dump"))

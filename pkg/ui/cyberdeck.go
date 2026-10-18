@@ -42,10 +42,10 @@ func CyberdeckBanner(model, sessionID, workspace string, ramBlocks int, totalBlo
 	var line1 string
 	if cols >= 75 {
 		// Breakpoint 1: Standard Desktop / Wide terminal
-		line1 = fmt.Sprintf("❖ CYBERDECK: ZEROTWO · PISTIL: CODE:002 · RAM: %s · %s", meter, truncateStr(model, targetW-58))
+		line1 = fmt.Sprintf("✦ CYBERDECK: ZEROTWO · PISTIL: CODE:002 · RAM: %s · %s", meter, truncateStr(model, targetW-58))
 	} else if cols >= 58 {
 		// Breakpoint 2: Kindle Portrait (58-74 cols)
-		line1 = fmt.Sprintf("❖ CYBERDECK: ZEROTWO · PISTIL: 002 · RAM: %s · %s", meter, truncateStr(displayModel, targetW-50))
+		line1 = fmt.Sprintf("✦ CYBERDECK: ZEROTWO · PISTIL: 002 · RAM: %s · %s", meter, truncateStr(displayModel, targetW-50))
 	} else {
 		// Breakpoint 3: Kindle Narrow / Keyboard open (< 58 cols)
 		cRamNarrow := (ramBlocks * 3) / totalBlocks
@@ -53,7 +53,7 @@ func CyberdeckBanner(model, sessionID, workspace string, ramBlocks int, totalBlo
 			cRamNarrow = 3
 		}
 		meterNarrow := strings.Repeat("▰", cRamNarrow) + strings.Repeat("▱", 3-cRamNarrow)
-		line1 = fmt.Sprintf("❖ ZEROTWO // 002 · %s · %s", meterNarrow, truncateStr(displayModel, targetW-24))
+		line1 = fmt.Sprintf("✦ ZEROTWO // 002 · %s · %s", meterNarrow, truncateStr(displayModel, targetW-24))
 	}
 
 	line1Runes := []rune(line1)
@@ -73,10 +73,10 @@ func NeuralLinkEngagement(actionDesc string) string {
 		targetW = 36
 	}
 
-	badge := "── ❖ LINK:ACTIVE "
+	badge := "/// ✦ LINK:ACTIVE "
 	msg := "quickhack engaged"
 	if cols >= 58 {
-		badge = "── ❖ BREACH_PROTOCOL // CODE:002 "
+		badge = "/// ✦ BREACH_PROTOCOL // CODE:002 "
 		if actionDesc != "" {
 			msg = actionDesc
 		} else {
@@ -110,9 +110,9 @@ func AssistantHeader() string {
 
 	var badge string
 	if cols >= 62 {
-		badge = "── ❖ ZERO TWO // CODE:002 "
+		badge = "/// ✦ ZERO TWO // CODE:002 "
 	} else {
-		badge = "── ❖ ZERO TWO "
+		badge = "/// ✦ ZERO TWO "
 	}
 
 	pad := targetW - len([]rune(badge))
@@ -218,17 +218,17 @@ func CyberdeckDock() string {
 
 	var leftBadge, rightMenu string
 	if cols >= 80 {
-		leftBadge = "── ❖ CYBERDECK:ACTIVE // CODE:002 "
-		rightMenu = " ? MENU · c SHARDS · x DUMP · q QUIT ──"
+		leftBadge = "/// ✦ CYBERDECK:ACTIVE // CODE:002 "
+		rightMenu = " ? MENU · c SHARDS · x DUMP · q QUIT ///"
 	} else if cols >= 62 {
-		leftBadge = "── ❖ DECK:ACTIVE "
-		rightMenu = " ? MENU · c SHARDS · q QUIT ──"
+		leftBadge = "/// ✦ DECK:ACTIVE "
+		rightMenu = " ? MENU · c SHARDS · q QUIT ///"
 	} else if cols >= 44 {
-		leftBadge = "── ❖ DECK:ACTIVE "
-		rightMenu = " ? HELP · q QUIT ──"
+		leftBadge = "/// ✦ DECK:ACTIVE "
+		rightMenu = " ? HELP · q QUIT ///"
 	} else {
-		leftBadge = "── ❖ 002 "
-		rightMenu = " ? HELP ──"
+		leftBadge = "/// ✦ 002 "
+		rightMenu = " ? HELP ///"
 	}
 
 	topUsed := len([]rune(leftBadge)) + len([]rune(rightMenu))
@@ -260,7 +260,7 @@ func ToolAuthCard(action, target, scope, warning string) string {
 		innerW = 26
 	}
 
-	titleBadge := "┌──[ ❖ NEURAL AUTHORIZATION ]"
+	titleBadge := "┌──[ ✦ NEURAL AUTHORIZATION ]"
 	padTop := targetW - len([]rune(titleBadge)) - 1
 	if padTop < 1 {
 		padTop = 1
@@ -478,7 +478,8 @@ func WrapText(text string, maxCols int) string {
 			strings.HasPrefix(trimmed, "─") || strings.HasPrefix(trimmed, "╔") ||
 			strings.HasPrefix(trimmed, "╚") || strings.HasPrefix(trimmed, "║") ||
 			strings.HasPrefix(trimmed, "╠") || strings.HasPrefix(trimmed, "╭") ||
-			strings.HasPrefix(trimmed, "╰") || strings.HasPrefix(trimmed, "❖") {
+			strings.HasPrefix(trimmed, "╰") || strings.HasPrefix(trimmed, "❖") ||
+			strings.HasPrefix(trimmed, "✦") || strings.HasPrefix(trimmed, "///") {
 			result = append(result, line)
 			continue
 		}

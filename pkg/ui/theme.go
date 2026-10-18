@@ -100,10 +100,16 @@ func SafeRule(prefix, suffix string, targetW int) string {
 	pW := StringWidth(prefix)
 	sW := StringWidth(suffix)
 	dashCount := targetW - pW - sW
-	if dashCount < 0 {
-		dashCount = 0
+	if dashCount >= 0 {
+		return prefix + strings.Repeat("─", dashCount) + suffix
 	}
-	return prefix + strings.Repeat("─", dashCount) + suffix
+	// If prefix + suffix exceeds targetW, truncate prefix to fit targetW - sW
+	if sW < targetW {
+		availForPrefix := targetW - sW
+		truncatedPrefix := TruncateToWidth(prefix, availForPrefix)
+		return truncatedPrefix + suffix
+	}
+	return TruncateToWidth(prefix+suffix, targetW)
 }
 
 // SafeBox creates a framed box around text guaranteed not to exceed targetW.
@@ -167,7 +173,7 @@ func RenderThemeBanner(model, sessionID, workspace string, ramBlocks, totalBlock
 		return fmt.Sprintf("\033[1m%s\033[0m\n", SafeBox(inner, targetW))
 
 	case ThemeTelemetry:
-		top := fmt.Sprintf("❖ CYBERDECK:002 · ⚡%d%%%s · %d°C · %dM", tel.BatteryPct, tel.BatteryGauge(), tel.TempC, tel.RAMFreeMB)
+		top := fmt.Sprintf("✦ CYBERDECK:002 · ⚡%d%%%s · %d°C · %dM", tel.BatteryPct, tel.BatteryGauge(), tel.TempC, tel.RAMFreeMB)
 		line1 := TruncateToWidth(top, targetW)
 		rule := strings.Repeat("─", targetW)
 		return fmt.Sprintf("\033[1m%s\n%s\033[0m\n", line1, rule)
@@ -179,7 +185,7 @@ func RenderThemeBanner(model, sessionID, workspace string, ramBlocks, totalBlock
 		return fmt.Sprintf("\033[1m%s\n%s\033[0m\n", line1, rule)
 
 	case ThemeHybrid:
-		top := fmt.Sprintf("▲ ▲ ❖ ゼロツー // 002 · ⚡%d%%%s · %d°C", tel.BatteryPct, tel.BatteryGauge(), tel.TempC)
+		top := fmt.Sprintf("▲ ▲ ✦ ゼロツー // 002 · ⚡%d%%%s · %d°C", tel.BatteryPct, tel.BatteryGauge(), tel.TempC)
 		line1 := TruncateToWidth(top, targetW)
 		rule := strings.Repeat("─", targetW)
 		return fmt.Sprintf("\033[1m%s\n%s\033[0m\n", line1, rule)
@@ -187,7 +193,7 @@ func RenderThemeBanner(model, sessionID, workspace string, ramBlocks, totalBlock
 	case ThemeMinimal:
 		fallthrough
 	default:
-		top := fmt.Sprintf("❖ ZEROTWO // 002 · %s · %s", meter, displayModel)
+		top := fmt.Sprintf("✦ ZEROTWO // 002 · %s · %s", meter, displayModel)
 		rule := strings.Repeat("─", targetW)
 		return fmt.Sprintf("\033[1m%s\n%s\033[0m\n", top, rule)
 	}
@@ -209,21 +215,21 @@ func RenderThemeDock() string {
 	var topLine, prompt string
 	switch CurrentTheme {
 	case ThemeStrelizia:
-		topLine = SafeRule("── ❖ STRELIZIA ", " ? HELP · q QUIT ──", targetW)
+		topLine = SafeRule("/// ✦ STRELIZIA ", " ? HELP · q QUIT ///", targetW)
 		prompt = "\033[7m 002:darling \033[0m › "
 	case ThemeTelemetry:
-		topLine = SafeRule(fmt.Sprintf("── ❖ SYS:NOMINAL ─ LOAD:%.2f ─ ", tel.LoadAvg), "? HELP · q ──", targetW)
+		topLine = SafeRule(fmt.Sprintf("/// ✦ SYS:OK ─ L:%.2f ", tel.LoadAvg), " ? HELP · q ///", targetW)
 		prompt = "002:darling › "
 	case ThemeTokyo:
-		topLine = SafeRule("── ❖ 機体同期 [ONLINE] ── ", "? HELP · q QUIT ──", targetW)
+		topLine = SafeRule("/// ✦ 機体同期 [ONLINE] ", " ? HELP · q ///", targetW)
 		prompt = "ダーリン › "
 	case ThemeHybrid:
-		topLine = SafeRule("── ❖ STRELIZIA ", " ? HELP · q QUIT ──", targetW)
+		topLine = SafeRule("/// ✦ STRELIZIA ", " ? HELP · q QUIT ///", targetW)
 		prompt = "\033[7m 002:darling \033[0m › "
 	case ThemeMinimal:
 		fallthrough
 	default:
-		topLine = SafeRule("── ❖ DECK:ACTIVE ", " ? HELP · q QUIT ──", targetW)
+		topLine = SafeRule("/// ✦ DECK:ACTIVE ", " ? HELP · q QUIT ///", targetW)
 		prompt = "002:darling › "
 	}
 
@@ -243,17 +249,17 @@ func RenderThemeAssistantHeader() string {
 
 	switch CurrentTheme {
 	case ThemeStrelizia:
-		return SafeRule("── \033[7m CODE:002:ZEROTWO \033[0m ", "", targetW) + "\n"
+		return SafeRule("/// \033[7m CODE:002:ZEROTWO \033[0m ", " ///", targetW) + "\n"
 	case ThemeTelemetry:
-		return SafeRule("── ❖ 002:TELEMETRY ", "", targetW) + "\n"
+		return SafeRule("/// ✦ 002:TELEMETRY ", " ///", targetW) + "\n"
 	case ThemeTokyo:
-		return SafeRule("── ❖ ゼロツー // CODE:002 ──", "", targetW) + "\n"
+		return SafeRule("/// ✦ ゼロツー // CODE:002 ", " ///", targetW) + "\n"
 	case ThemeHybrid:
-		return SafeRule("── \033[7m ❖ ZERO TWO // CODE:002 \033[0m ", "", targetW) + "\n"
+		return SafeRule("/// \033[7m ✦ ZERO TWO // CODE:002 \033[0m ", " ///", targetW) + "\n"
 	case ThemeMinimal:
 		fallthrough
 	default:
-		return SafeRule("── ❖ ZERO TWO // CODE:002 ", "", targetW) + "\n"
+		return SafeRule("/// ✦ ZERO TWO // CODE:002 ", " ///", targetW) + "\n"
 	}
 }
 
