@@ -42,8 +42,24 @@ func main() {
 		autoYes     = flag.Bool("yes", false, "Auto-approve non-destructive tool/command confirmations")
 		autoYesY    = flag.Bool("y", false, "Auto-approve non-destructive tool/command confirmations (shorthand)")
 		noStream    = flag.Bool("no-stream", false, "Disable streaming mode")
+		demoTheme   = flag.String("demo", "", "Print aesthetic UI demo mockup for theme (strelizia, telemetry, tokyo, hybrid, minimal) and exit")
+		themeFlag   = flag.String("theme", "", "Override UI theme (strelizia, telemetry, tokyo, hybrid, minimal)")
 	)
 	flag.Parse()
+
+	if *demoTheme != "" {
+		theme := ui.ThemeStyle(*demoTheme)
+		if !ui.SetTheme(*demoTheme) {
+			fmt.Fprintf(os.Stderr, "Unknown theme %q. Available: %s\n", *demoTheme, strings.Join(ui.AvailableThemes(), ", "))
+			os.Exit(1)
+		}
+		fmt.Print(ui.GenerateDemoMockup(theme))
+		return
+	}
+
+	if *themeFlag != "" {
+		ui.SetTheme(*themeFlag)
+	}
 
 	effectiveAutoYes := *autoYes || *autoYesY
 
@@ -262,6 +278,28 @@ func main() {
 			printStatus(cfg, sess)
 			continue
 		}
+		if strings.HasPrefix(input, "/theme") {
+			parts := strings.Fields(input)
+			if len(parts) < 2 {
+				fmt.Printf("\nCurrent theme: %s\nAvailable themes: %s\nUsage: /theme <name>\n\n", ui.CurrentTheme, strings.Join(ui.AvailableThemes(), ", "))
+			} else {
+				if ui.SetTheme(parts[1]) {
+					fmt.Printf("\n✓ Theme set to %s\n\n", ui.CurrentTheme)
+				} else {
+					fmt.Printf("\nUnknown theme %q. Available: %s\n\n", parts[1], strings.Join(ui.AvailableThemes(), ", "))
+				}
+			}
+			continue
+		}
+		if strings.HasPrefix(input, "/demo") {
+			parts := strings.Fields(input)
+			t := ui.CurrentTheme
+			if len(parts) >= 2 {
+				t = ui.ThemeStyle(parts[1])
+			}
+			fmt.Print(ui.GenerateDemoMockup(t))
+			continue
+		}
 		if input == "/memory" {
 			content := mem.LoadRaw()
 			if content == "" {
@@ -449,6 +487,8 @@ func printCyberdeckPalette() {
 	sb.WriteString(midLine)
 	sb.WriteString(formatRow("c, /shards   · Reading highlights / shards"))
 	sb.WriteString(formatRow("x, /export   · Compile offline data dump"))
+	sb.WriteString(formatRow("/theme [name]· Switch aesthetic theme"))
+	sb.WriteString(formatRow("/demo [name] · Preview layout mockup"))
 	sb.WriteString(formatRow("/status      · Telemetry & provider info"))
 	sb.WriteString(formatRow("/clear       · Purge conversation history"))
 	sb.WriteString(formatRow("/memory      · View neural memory store"))
@@ -534,6 +574,8 @@ func printStatus(cfg *config.Config, sess *session.Session) {
 func printHelp() {
 	fmt.Print(`
 Commands:
+  /theme [name]        — Switch aesthetic theme (hybrid, strelizia, telemetry, tokyo, minimal)
+  /demo [name]         — Preview aesthetic HUD layout mockup
   /memory              — View raw long-term memory (MEMORY.md)
   /memory-preview      — View exact memory text sent to the configured provider
   /reload              — Rebuild static system prompt from updated config/memory
@@ -543,6 +585,8 @@ Commands:
   exit                 — Exit ZeroTwo
 
 CLI Flags:
+  -theme <name>        — Override theme on launch
+  -demo <name>         — Preview theme mockup and exit
   -m "message"         — Single message non-interactive mode
   -e "task"            — Shell assistant mode: translate natural language to command
   -s <id>              — Named session ID (default: "default")

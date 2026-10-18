@@ -9,6 +9,9 @@ import (
 
 // CyberdeckBanner renders a minimal, high-contrast Strelizia / Netrunner HUD header.
 func CyberdeckBanner(model, sessionID, workspace string, ramBlocks int, totalBlocks int) string {
+	if CurrentTheme != ThemeMinimal {
+		return RenderThemeBanner(model, sessionID, workspace, ramBlocks, totalBlocks)
+	}
 	cols := GetTerminalCols()
 	targetW := cols - 2
 	if targetW < 36 {
@@ -96,6 +99,9 @@ func NeuralLinkEngagement(actionDesc string) string {
 
 // AssistantHeader renders the aesthetic Cyberdeck speaker header for Zero Two.
 func AssistantHeader() string {
+	if CurrentTheme != ThemeMinimal {
+		return RenderThemeAssistantHeader()
+	}
 	cols := GetTerminalCols()
 	targetW := cols - 2
 	if targetW < 36 {
@@ -118,6 +124,9 @@ func AssistantHeader() string {
 
 // QuickhackCard renders an autonomous tool action card with aesthetic cyberdeck styling.
 func QuickhackCard(toolName, cmdOrArgs, result string) string {
+	if CurrentTheme != ThemeMinimal {
+		return RenderThemeQuickhackCard(toolName, cmdOrArgs, result)
+	}
 	cols := GetTerminalCols()
 	targetW := cols - 2
 	if targetW < 36 {
@@ -198,6 +207,9 @@ func QuickhackCard(toolName, cmdOrArgs, result string) string {
 
 // CyberdeckDock renders the aesthetic cyberdeck bezel and interactive command bar.
 func CyberdeckDock() string {
+	if CurrentTheme != ThemeMinimal {
+		return RenderThemeDock()
+	}
 	cols := GetTerminalCols()
 	targetW := cols - 2
 	if targetW < 36 {
