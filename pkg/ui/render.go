@@ -122,7 +122,12 @@ func RenderPaged(text string) {
 		}
 
 		if end < len(lines) {
-			fmt.Fprintf(tty, "\033[7m-- More (%d%%) [Press Enter to continue, 'q' to stop] --\033[0m", (end*100)/len(lines))
+			cols := GetTerminalCols()
+			prompt := fmt.Sprintf("-- More (%d%%) [Press Enter to continue, 'q' to stop] --", (end*100)/len(lines))
+			if cols < 60 {
+				prompt = fmt.Sprintf("-- More (%d%%) [Enter / q] --", (end*100)/len(lines))
+			}
+			fmt.Fprintf(tty, "\033[7m%s\033[0m", prompt)
 			ans, _ := reader.ReadString('\n')
 			fmt.Fprint(tty, "\r\033[K") // clear prompt line
 			if strings.TrimSpace(ans) == "q" {

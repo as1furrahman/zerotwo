@@ -474,25 +474,11 @@ func (l *Loop) promptUserConfirmationWithDetails(ctx context.Context, details au
 		defer closer.Close()
 	}
 
-	prefix := "[Tool Authorization Required]"
+	actionStr := details.Action
 	if details.Category != "" {
-		prefix = fmt.Sprintf("[Tool Authorization Required: %s]", details.Category)
+		actionStr = fmt.Sprintf("%s (%s)", details.Action, details.Category)
 	}
-
-	fmt.Fprintf(w, "\n%s\n", prefix)
-	if details.Action != "" {
-		fmt.Fprintf(w, "Action: %s\n", details.Action)
-	}
-	if details.Target != "" {
-		fmt.Fprintf(w, "Target: %s\n", details.Target)
-	}
-	if details.DataScope != "" {
-		fmt.Fprintf(w, "Scope:  %s\n", details.DataScope)
-	}
-	if details.Warning != "" {
-		fmt.Fprintf(w, "Notice: %s\n", details.Warning)
-	}
-	fmt.Fprintf(w, "Confirm execution? [y/N]: ")
+	fmt.Fprint(w, ui.ToolAuthCard(actionStr, details.Target, details.DataScope, details.Warning))
 
 	input, err := readLineWithContext(ctx, r)
 	if err != nil {

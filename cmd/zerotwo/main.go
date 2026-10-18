@@ -308,7 +308,7 @@ func main() {
 		if cfg.Provider.Stream {
 			tokenCb = func(token string) {
 				if firstToken {
-					fmt.Print(" ◢◤ [ ❖ ZERO TWO // CODE:002 ] ───────────────────────────\n")
+					fmt.Print(ui.AssistantHeader())
 					firstToken = false
 				}
 				fmt.Print(token)
@@ -329,7 +329,7 @@ func main() {
 		}
 
 		if !cfg.Provider.Stream {
-			fmt.Print(" ◢◤ [ ❖ ZERO TWO // CODE:002 ] ───────────────────────────\n")
+			fmt.Print(ui.AssistantHeader())
 			ui.RenderPaged(ui.MarkdownToTerm(response))
 			fmt.Println()
 		} else {

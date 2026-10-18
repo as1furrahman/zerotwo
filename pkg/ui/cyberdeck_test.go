@@ -131,14 +131,62 @@ func TestNarrowTerminalKindle(t *testing.T) {
 		tableTerm := MarkdownToTerm(table)
 		lines := strings.Split(tableTerm, "\n")
 		for _, l := range lines {
-			// strip ansi codes roughly
 			clean := regexp.MustCompile(`\x1b\[[0-9;]*m`).ReplaceAllString(l, "")
-			// Allow small margin for multi-byte runes
 			runeCount := len([]rune(clean))
 			if runeCount > w+5 {
 				t.Errorf("table line exceeded col limit %d: len=%d line=%q", w, runeCount, clean)
 			}
 		}
+
+		// Test ToolAuthCard
+		authCard := ToolAuthCard("shell", "ps aux | grep test", "local process", "sensitive path")
+		if !strings.Contains(authCard, "NEURAL AUTHORIZATION") {
+			t.Errorf("authCard missing title: %s", authCard)
+		}
+
+		// Test AssistantHeader
+		hdr := AssistantHeader()
+		if !strings.Contains(hdr, "ZERO TWO") {
+			t.Errorf("assistant header missing ZERO TWO: %s", hdr)
+		}
+	}
+}
+
+func TestToolAuthCard(t *testing.T) {
+	card := ToolAuthCard("shell (network)", "curl -I https://api.groq.com", "remote egress", "network access")
+	if !strings.Contains(card, "NEURAL AUTHORIZATION") {
+		t.Errorf("missing header: %s", card)
+	}
+	if !strings.Contains(card, "Quickhack:") {
+		t.Errorf("missing Quickhack label: %s", card)
+	}
+	if !strings.Contains(card, "Confirm execution? [y/N]:") {
+		t.Errorf("missing confirm prompt: %s", card)
+	}
+}
+
+func TestWrapText(t *testing.T) {
+	input := "This is a long sentence that should definitely be wrapped onto multiple lines cleanly without breaking words in half."
+	wrapped := WrapText(input, 30)
+	lines := strings.Split(wrapped, "\n")
+	if len(lines) < 3 {
+		t.Errorf("expected at least 3 lines, got %d: %q", len(lines), wrapped)
+	}
+	for _, l := range lines {
+		if len([]rune(l)) > 30 {
+			t.Errorf("line exceeded 30 runes: len=%d line=%q", len([]rune(l)), l)
+		}
+	}
+}
+
+func TestFencedCodeBlock(t *testing.T) {
+	input := "```python\ndef hello():\n    print(\"Hello Darling\")\n```"
+	rendered := MarkdownToTerm(input)
+	if !strings.Contains(rendered, "CODE: PYTHON") {
+		t.Errorf("expected python code badge, got: %s", rendered)
+	}
+	if !strings.Contains(rendered, "print(\"Hello Darling\")") {
+		t.Errorf("expected code body, got: %s", rendered)
 	}
 }
 
