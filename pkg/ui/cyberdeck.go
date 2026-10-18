@@ -73,10 +73,10 @@ func NeuralLinkEngagement(actionDesc string) string {
 		targetW = 36
 	}
 
-	badge := "/// ✦ LINK:ACTIVE "
+	badge := "/// :: LINK:ACTIVE "
 	msg := "quickhack engaged"
 	if cols >= 58 {
-		badge = "/// ✦ BREACH_PROTOCOL // CODE:002 "
+		badge = "/// :: BREACH_PROTOCOL // CODE:002 "
 		if actionDesc != "" {
 			msg = actionDesc
 		} else {
@@ -218,16 +218,16 @@ func CyberdeckDock() string {
 
 	var leftBadge, rightMenu string
 	if cols >= 80 {
-		leftBadge = "/// ✦ CYBERDECK:ACTIVE // CODE:002 "
+		leftBadge = "/// :: CYBERDECK:ACTIVE // CODE:002 "
 		rightMenu = " ? MENU · c SHARDS · x DUMP · q QUIT ///"
 	} else if cols >= 62 {
-		leftBadge = "/// ✦ DECK:ACTIVE "
+		leftBadge = "/// :: DECK:ACTIVE "
 		rightMenu = " ? MENU · c SHARDS · q QUIT ///"
 	} else if cols >= 44 {
-		leftBadge = "/// ✦ DECK:ACTIVE "
+		leftBadge = "/// :: DECK:ACTIVE "
 		rightMenu = " ? HELP · q QUIT ///"
 	} else {
-		leftBadge = "/// ✦ 002 "
+		leftBadge = "/// :: 002 "
 		rightMenu = " ? HELP ///"
 	}
 

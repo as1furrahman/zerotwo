@@ -215,21 +215,21 @@ func RenderThemeDock() string {
 	var topLine, prompt string
 	switch CurrentTheme {
 	case ThemeStrelizia:
-		topLine = SafeRule("/// ✦ STRELIZIA ", " ? HELP · q QUIT ///", targetW)
+		topLine = SafeRule("/// :: STRELIZIA ", " ? HELP · q QUIT ///", targetW)
 		prompt = "\033[7m 002:darling \033[0m › "
 	case ThemeTelemetry:
-		topLine = SafeRule(fmt.Sprintf("/// ✦ SYS:OK ─ L:%.2f ", tel.LoadAvg), " ? HELP · q ///", targetW)
+		topLine = SafeRule(fmt.Sprintf("/// :: SYS:OK ─ L:%.2f ", tel.LoadAvg), " ? HELP · q ///", targetW)
 		prompt = "002:darling › "
 	case ThemeTokyo:
-		topLine = SafeRule("/// ✦ 機体同期 [ONLINE] ", " ? HELP · q ///", targetW)
+		topLine = SafeRule("/// :: 機体同期 [ONLINE] ", " ? HELP · q ///", targetW)
 		prompt = "ダーリン › "
 	case ThemeHybrid:
-		topLine = SafeRule("/// ✦ STRELIZIA ", " ? HELP · q QUIT ///", targetW)
+		topLine = SafeRule("/// :: STRELIZIA ", " ? HELP · q QUIT ///", targetW)
 		prompt = "\033[7m 002:darling \033[0m › "
 	case ThemeMinimal:
 		fallthrough
 	default:
-		topLine = SafeRule("/// ✦ DECK:ACTIVE ", " ? HELP · q QUIT ///", targetW)
+		topLine = SafeRule("/// :: DECK:ACTIVE ", " ? HELP · q QUIT ///", targetW)
 		prompt = "002:darling › "
 	}
 
