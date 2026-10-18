@@ -308,7 +308,7 @@ func main() {
 		if cfg.Provider.Stream {
 			tokenCb = func(token string) {
 				if firstToken {
-					fmt.Print(" \033[1m▲▲ ZERO TWO\033[0m\n")
+					fmt.Print(" ◢◤ [ ❖ ZERO TWO // CODE:002 ] ───────────────────────────\n")
 					firstToken = false
 				}
 				fmt.Print(token)
@@ -328,7 +328,7 @@ func main() {
 		}
 
 		if !cfg.Provider.Stream {
-			fmt.Print(" \033[1m▲▲ ZERO TWO\033[0m\n")
+			fmt.Print(" ◢◤ [ ❖ ZERO TWO // CODE:002 ] ───────────────────────────\n")
 			ui.RenderPaged(ui.MarkdownToTerm(response))
 			fmt.Println()
 		} else {
@@ -411,20 +411,50 @@ func handleClippingsExplorer(workspace string, scanner *bufio.Scanner, loop *age
 }
 
 func printCyberdeckPalette() {
-	fmt.Print(`
- ▲▲ CYBERDECK PALETTE ────────────────────────────────────────────────
- Deck Ops:
-   c, /shards       — Access Reading Shards (My Clippings.txt)
-   x, /export       — Compile active run into eBook Data Dump (HTML)
-   /status, /clear  — Telemetry / Purge neural context
-   /reload, /memory — Rebuild prompt / View MEMORY.md
-   q, exit          — Jack out of cyberdeck
- Flags:
-   -m "prompt"      — Single-shot non-interactive neural query
-   -e "task"        — Shell assistant mode (translate English to bash)
-   -y, -yes         — Auto-approve non-destructive quickhacks
- ─────────────────────────────────────────────────────────────────────
-`)
+	cols := ui.GetTerminalCols()
+	if cols < 40 {
+		cols = 40
+	}
+	if cols > 80 {
+		cols = 80
+	}
+	w := cols - 4
+	if w < 36 {
+		w = 36
+	}
+
+	title := " ╔═[ ❖ ZEROTWO // PALETTE ]"
+	padTop := w - len([]rune(title)) + 2
+	if padTop < 1 {
+		padTop = 1
+	}
+	topLine := title + strings.Repeat("═", padTop) + "╗\n"
+
+	formatRow := func(text string) string {
+		tVal := text
+		if len([]rune(tVal)) > w-2 {
+			tVal = string([]rune(tVal)[:w-5]) + "..."
+		}
+		pad := w - 2 - len([]rune(tVal))
+		if pad < 0 {
+			pad = 0
+		}
+		return fmt.Sprintf(" ║ %s%s ║\n", tVal, strings.Repeat(" ", pad))
+	}
+
+	var sb strings.Builder
+	sb.WriteString("\n" + topLine)
+	sb.WriteString(formatRow("c, /shards       — Access Reading Shards"))
+	sb.WriteString(formatRow("x, /export       — Compile eBook Data Dump"))
+	sb.WriteString(formatRow("/status, /clear  — Telemetry / Purge Context"))
+	sb.WriteString(formatRow("/reload, /memory — Rebuild Prompt / Memory"))
+	sb.WriteString(formatRow("q, exit          — Jack out of cyberdeck"))
+	sb.WriteString(" ╠" + strings.Repeat("═", w) + "╣\n")
+	sb.WriteString(formatRow("-m \"prompt\"      — Single-shot neural query"))
+	sb.WriteString(formatRow("-e \"task\"        — Shell assistant mode"))
+	sb.WriteString(formatRow("-y, -yes         — Auto-approve quickhacks"))
+	sb.WriteString(" ╚" + strings.Repeat("═", w) + "╝\n")
+	fmt.Print(sb.String())
 }
 
 func buildRegistry(cfg *config.Config, mem *agent.MemoryStore) *tools.Registry {

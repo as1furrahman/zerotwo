@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// CyberdeckBanner renders the ultra-compact high-contrast Strelizia / Netrunner HUD header.
+// CyberdeckBanner renders the aesthetic high-contrast Strelizia / Netrunner HUD header.
 func CyberdeckBanner(model, sessionID, workspace string, ramBlocks int, totalBlocks int) string {
 	cols := GetTerminalCols()
 	if cols < 40 {
@@ -26,54 +26,73 @@ func CyberdeckBanner(model, sessionID, workspace string, ramBlocks int, totalBlo
 		ramBlocks = totalBlocks
 	}
 
-	meter := "[" + strings.Repeat("■", ramBlocks) + strings.Repeat("□", totalBlocks-ramBlocks) + "]"
+	cRam := (ramBlocks * 5) / totalBlocks
+	if cRam > 5 {
+		cRam = 5
+	}
+	meter := strings.Repeat("▰", cRam) + strings.Repeat("▱", 5-cRam)
 
-	var line1 string
-	if cols >= 90 {
-		line1 = fmt.Sprintf(" ▲▲ CYBERDECK: ZEROTWO [FRANXX-OS] :: PISTIL: CODE:002 :: RAM %s :: %s", meter, truncateStr(model, cols-65))
-	} else if cols >= 75 {
-		cRam := (ramBlocks * 5) / totalBlocks
-		if cRam > 5 {
-			cRam = 5
-		}
-		cMeter := "[" + strings.Repeat("■", cRam) + strings.Repeat("□", 5-cRam) + "]"
-		line1 = fmt.Sprintf(" ▲▲ CYBERDECK: ZEROTWO :: PISTIL: CODE:002 :: RAM %s :: %s", cMeter, truncateStr(model, cols-60))
+	var titleBadge, rightBadge, midContent, botBadge string
+	if cols >= 80 {
+		titleBadge = " ╔═[ ◢◤ CYBERDECK: ZEROTWO // STRELIZIA ]"
+		rightBadge = "[ ICE: BREACHED ]═╗"
+		botBadge = "[ FRANXX-OS // SYNC: 99.8% ]══╝"
+		midContent = fmt.Sprintf(" ║ ◈ PISTIL: CODE:002  ◈ RAM: %s  ◈ CORE: %s", meter, truncateStr(model, cols-48))
 	} else if cols >= 58 {
-		// Breakpoint 2: Kindle Portrait (58-74 cols)
-		cRam := (ramBlocks * 4) / totalBlocks
-		if cRam > 4 {
-			cRam = 4
-		}
-		cMeter := "[" + strings.Repeat("■", cRam) + strings.Repeat("□", 4-cRam) + "]"
-		line1 = fmt.Sprintf(" ▲▲ ZEROTWO [002] :: RAM %s :: %s", cMeter, truncateStr(model, cols-32))
+		// Kindle Portrait (58-79 cols)
+		titleBadge = " ╔═[ ◢◤ CYBERDECK: ZEROTWO ]"
+		rightBadge = "[ 002 ]═╗"
+		botBadge = "[ SYNC: 99.8% ]══╝"
+		midContent = fmt.Sprintf(" ║ ◈ PISTIL: CODE:002 │ RAM: %s │ %s", meter, truncateStr(model, cols-40))
 	} else {
-		// Breakpoint 3: Kindle Narrow / Keyboard open (< 58 cols)
-		cRam := (ramBlocks * 3) / totalBlocks
-		if cRam > 3 {
-			cRam = 3
+		// Kindle Narrow / Keyboard open (< 58 cols)
+		titleBadge = " ╔═[ 002:CYBERDECK ]"
+		rightBadge = "[ OK ]═╗"
+		botBadge = "[ 99.8% ]══╝"
+		midContent = fmt.Sprintf(" ║ ◈ 002 │ %s │ %s", meter, truncateStr(model, cols-24))
+	}
+
+	topUsed := len([]rune(titleBadge)) + len([]rune(rightBadge))
+	topPad := cols - topUsed
+	if topPad < 1 {
+		topPad = 1
+	}
+	topLine := titleBadge + strings.Repeat("═", topPad) + rightBadge
+
+	midUsed := len([]rune(midContent))
+	midPad := cols - midUsed - 1
+	if midPad < 1 {
+		midPad = 1
+	}
+	midLine := midContent + strings.Repeat(" ", midPad) + "║"
+
+	botUsed := len([]rune(botBadge))
+	botPad := cols - botUsed - 2
+	if botPad < 1 {
+		botPad = 1
+	}
+	botLine := " ╚" + strings.Repeat("═", botPad) + botBadge
+
+	clamp := func(line string) string {
+		r := []rune(line)
+		if len(r) > cols {
+			return string(r[:cols])
 		}
-		cMeter := "[" + strings.Repeat("■", cRam) + strings.Repeat("□", 3-cRam) + "]"
-		line1 = fmt.Sprintf(" ▲▲ ZEROTWO :: 002 :: %s", cMeter)
+		return line
 	}
 
-	line1Runes := []rune(line1)
-	if len(line1Runes) > cols {
-		line1 = string(line1Runes[:cols])
-	}
-
-	line2 := strings.Repeat("─", cols)
-	return fmt.Sprintf("%s\n%s\n", line1, line2)
+	return fmt.Sprintf("%s\n%s\n%s\n", clamp(topLine), clamp(midLine), clamp(botLine))
 }
 
 // NeuralLinkEngagement renders the quick neural resonance banner before actions.
 func NeuralLinkEngagement(actionDesc string) string {
 	if actionDesc == "" {
-		return " ▲▲ BREACH_PROTOCOL :: neural resonance established\n"
+		return " ◢◤ [ ❖ BREACH_PROTOCOL ] ── neural resonance established ───\n"
 	}
-	return fmt.Sprintf(" ▲▲ BREACH_PROTOCOL :: %s\n", actionDesc)
+	return fmt.Sprintf(" ◢◤ [ ❖ BREACH_PROTOCOL ] ── %s ───\n", actionDesc)
 }
 
-// QuickhackCard renders an autonomous tool action card with compact cyberdeck styling.
+// QuickhackCard renders an autonomous tool action card with aesthetic cyberdeck styling.
 func QuickhackCard(toolName, cmdOrArgs, result string) string {
 	cols := GetTerminalCols()
 	if cols < 40 {
@@ -83,41 +102,57 @@ func QuickhackCard(toolName, cmdOrArgs, result string) string {
 		cols = 80
 	}
 
-	innerW := cols - 4
-	if innerW < 26 {
-		innerW = 26
-	}
-
+	badge := fmt.Sprintf(" ╭─[ ⚡ QUICKHACK [%s] ]", toolName)
 	cleanCmd := strings.ReplaceAll(strings.TrimSpace(cmdOrArgs), "\n", " ")
-	maxCmd := innerW - len(toolName) - 16
-	if maxCmd < 8 {
-		maxCmd = 8
-	}
-	if len(cleanCmd) > maxCmd {
-		cleanCmd = truncateStr(cleanCmd, maxCmd)
-	}
 
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf(" ┌ ▲▲ QUICKHACK [%s] $ %s\n", toolName, cleanCmd))
+	availCmd := cols - len([]rune(badge)) - 10
+	if availCmd < 8 {
+		availCmd = 8
+	}
+	tCmd := truncateStr(cleanCmd, availCmd)
 
+	headerPart := fmt.Sprintf("%s ── $ %s ", badge, tCmd)
+	topPad := cols - len([]rune(headerPart)) - 1
+	if topPad < 1 {
+		topPad = 1
+	}
+	topLine := headerPart + strings.Repeat("─", topPad) + "╮"
+
+	var botLine string
 	if result != "" {
 		resLines := strings.Split(strings.TrimSpace(result), "\n")
 		firstLine := strings.TrimSpace(resLines[0])
-		if len(firstLine) > innerW-6 {
-			firstLine = truncateStr(firstLine, innerW-6)
-		}
+		moreInfo := ""
 		if len(resLines) > 1 {
-			sb.WriteString(fmt.Sprintf(" └ ➔ %s \033[90m[+%d lines]\033[0m\n", firstLine, len(resLines)-1))
-		} else {
-			sb.WriteString(fmt.Sprintf(" └ ➔ %s\n", firstLine))
+			moreInfo = fmt.Sprintf(" [+%d lines]", len(resLines)-1)
 		}
+		availRes := cols - len([]rune(" ╰─➔ ")) - len([]rune(moreInfo)) - 4
+		if availRes < 10 {
+			availRes = 10
+		}
+		tRes := truncateStr(firstLine, availRes)
+		botPart := fmt.Sprintf(" ╰─➔ %s%s ", tRes, moreInfo)
+		botPad := cols - len([]rune(botPart)) - 1
+		if botPad < 1 {
+			botPad = 1
+		}
+		botLine = botPart + strings.Repeat("─", botPad) + "╯"
 	} else {
-		sb.WriteString(fmt.Sprintf(" └%s\n", strings.Repeat("─", cols-3)))
+		botLine = " ╰" + strings.Repeat("─", cols-3) + "╯"
 	}
-	return sb.String()
+
+	clamp := func(line string) string {
+		r := []rune(line)
+		if len(r) > cols {
+			return string(r[:cols])
+		}
+		return line
+	}
+
+	return fmt.Sprintf("%s\n%s\n", clamp(topLine), clamp(botLine))
 }
 
-// CyberdeckDock renders the compact interactive command bar at the bottom.
+// CyberdeckDock renders the aesthetic cyberdeck bezel and interactive command bar.
 func CyberdeckDock() string {
 	cols := GetTerminalCols()
 	if cols < 40 {
@@ -127,31 +162,35 @@ func CyberdeckDock() string {
 		cols = 100
 	}
 
-	var dockBar string
-	if cols >= 78 {
-		dockBar = " [DECK:ACTIVE] ⏎ BREACH  ? CYBERWARE  c MEM_SHARDS  x DATA_DUMP  q JACK_OUT "
-	} else if cols >= 58 {
-		dockBar = " [DECK] ⏎ run  ? menu  c shards  x dump  q quit "
+	var leftBadge, rightMenu string
+	if cols >= 80 {
+		leftBadge = " ╭──[ ❖ CYBERDECK:ACTIVE // CODE:002 ]"
+		rightMenu = "[ ⏎ RUN  ? MENU  c SHARDS  x DUMP  q QUIT ]──╮"
+	} else if cols >= 62 {
+		leftBadge = " ╭──[ ❖ DECK:ACTIVE ]"
+		rightMenu = "[ ⏎ RUN  ? MENU  c SHARDS  q QUIT ]──╮"
 	} else {
-		dockBar = " [DECK] ⏎ ENTER  ? HELP  c SHARDS  q QUIT "
+		leftBadge = " ╭──[ 002 ]"
+		rightMenu = "[ ⏎ RUN  ? HELP  q QUIT ]──╮"
 	}
 
-	dockWidth := len([]rune(dockBar))
-	rulePad := cols - dockWidth - 2
-	if rulePad < 1 {
-		rulePad = 1
+	topUsed := len([]rune(leftBadge)) + len([]rune(rightMenu))
+	pad := cols - topUsed
+	if pad < 1 {
+		pad = 1
 	}
-	line1 := fmt.Sprintf("──%s%s", dockBar, strings.Repeat("─", rulePad))
-	line1Runes := []rune(line1)
-	if len(line1Runes) > cols {
-		line1 = string(line1Runes[:cols])
-	}
-	prompt := "\033[1;7m 002:darling \033[0m › "
+	topLine := leftBadge + strings.Repeat("─", pad) + rightMenu
+	prompt := " ╰─❯ \033[1;7m 002:darling \033[0m › "
 
-	return fmt.Sprintf("%s\n%s", line1, prompt)
+	r := []rune(topLine)
+	if len(r) > cols {
+		topLine = string(r[:cols])
+	}
+
+	return fmt.Sprintf("%s\n%s", topLine, prompt)
 }
 
-// DestructiveCyberwareWarning renders the high-contrast lethal ICE alert.
+// DestructiveCyberwareWarning renders the aesthetic lethal ICE alert.
 func DestructiveCyberwareWarning(action, target, hazard string) string {
 	cols := GetTerminalCols()
 	if cols < 40 {
@@ -170,14 +209,15 @@ func DestructiveCyberwareWarning(action, target, hazard string) string {
 	if w < 54 {
 		title = "▲▲ [DARLING, WAIT! LETHAL ICE DETECTED]"
 	}
-	if len([]rune(title)) > w-2 {
-		title = truncateStr(title, w-2)
+	if len([]rune(title)) > w-4 {
+		title = truncateStr(title, w-4)
 	}
-	titleLen := len([]rune(title))
-	titlePad := w - 2 - titleLen
-	if titlePad < 0 {
-		titlePad = 0
+	titleBadge := fmt.Sprintf(" ╔═[ %s ]", title)
+	padTop := w - len([]rune(titleBadge)) + 2
+	if padTop < 1 {
+		padTop = 1
 	}
+	topLine := titleBadge + strings.Repeat("═", padTop) + "╗\n"
 
 	formatRow := func(label, val string) string {
 		labelLen := len([]rune(label))
@@ -195,14 +235,14 @@ func DestructiveCyberwareWarning(action, target, hazard string) string {
 
 	var sb strings.Builder
 	sb.WriteString("\n\033[1;7m")
-	sb.WriteString(" ╔" + strings.Repeat("═", w) + "╗\n")
-	sb.WriteString(fmt.Sprintf(" ║ %s%s ║\n", title, strings.Repeat(" ", titlePad)))
-	sb.WriteString(" ╠" + strings.Repeat("═", w) + "╣\n")
+	sb.WriteString(topLine)
 	sb.WriteString(formatRow("Quickhack: ", action))
 	sb.WriteString(formatRow("Target:    ", target))
 	sb.WriteString(formatRow("Danger:    ", hazard))
+	sb.WriteString(" ╠" + strings.Repeat("═", w) + "╣\n")
+	sb.WriteString(formatRow("Zero Two:  ", "\"I won't let you brick our deck, Darling.\""))
 	sb.WriteString(" ╚" + strings.Repeat("═", w) + "╝\033[0m\n")
-	sb.WriteString(" Zero Two: \"I won't let you brick our deck, Darling. Type '\033[1mdarling\033[0m' to bypass: \" ")
+	sb.WriteString(" Type '\033[1mdarling\033[0m' to bypass ICE: ")
 	return sb.String()
 }
 
