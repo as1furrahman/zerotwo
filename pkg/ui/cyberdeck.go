@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// CyberdeckBanner renders the aesthetic high-contrast Strelizia / Netrunner HUD header.
+// CyberdeckBanner renders a minimal, high-contrast Strelizia / Netrunner HUD header.
 func CyberdeckBanner(model, sessionID, workspace string, ramBlocks int, totalBlocks int) string {
 	cols := GetTerminalCols()
 	if cols < 40 {
@@ -32,56 +32,35 @@ func CyberdeckBanner(model, sessionID, workspace string, ramBlocks int, totalBlo
 	}
 	meter := strings.Repeat("▰", cRam) + strings.Repeat("▱", 5-cRam)
 
-	var titleBadge, rightBadge, midContent, botBadge string
-	if cols >= 80 {
-		titleBadge = " ╔═[ ◢◤ CYBERDECK: ZEROTWO // STRELIZIA ]"
-		rightBadge = "[ ICE: BREACHED ]═╗"
-		botBadge = "[ FRANXX-OS // SYNC: 99.8% ]══╝"
-		midContent = fmt.Sprintf(" ║ ◈ PISTIL: CODE:002  ◈ RAM: %s  ◈ CORE: %s", meter, truncateStr(model, cols-48))
+	displayModel := model
+	if idx := strings.LastIndex(displayModel, "/"); idx != -1 && cols < 80 {
+		displayModel = displayModel[idx+1:]
+	}
+
+	var line1 string
+	if cols >= 75 {
+		// Breakpoint 1: Standard Desktop / Wide terminal
+		line1 = fmt.Sprintf(" ◢◤ CYBERDECK: ZEROTWO · PISTIL: CODE:002 · RAM: %s · %s", meter, truncateStr(model, cols-58))
 	} else if cols >= 58 {
-		// Kindle Portrait (58-79 cols)
-		titleBadge = " ╔═[ ◢◤ CYBERDECK: ZEROTWO ]"
-		rightBadge = "[ 002 ]═╗"
-		botBadge = "[ SYNC: 99.8% ]══╝"
-		midContent = fmt.Sprintf(" ║ ◈ PISTIL: CODE:002 │ RAM: %s │ %s", meter, truncateStr(model, cols-40))
+		// Breakpoint 2: Kindle Portrait (58-74 cols)
+		line1 = fmt.Sprintf(" ◢◤ CYBERDECK: ZEROTWO · PISTIL: 002 · RAM: %s · %s", meter, truncateStr(displayModel, cols-50))
 	} else {
-		// Kindle Narrow / Keyboard open (< 58 cols)
-		titleBadge = " ╔═[ 002:CYBERDECK ]"
-		rightBadge = "[ OK ]═╗"
-		botBadge = "[ 99.8% ]══╝"
-		midContent = fmt.Sprintf(" ║ ◈ 002 │ %s │ %s", meter, truncateStr(model, cols-24))
-	}
-
-	topUsed := len([]rune(titleBadge)) + len([]rune(rightBadge))
-	topPad := cols - topUsed
-	if topPad < 1 {
-		topPad = 1
-	}
-	topLine := titleBadge + strings.Repeat("═", topPad) + rightBadge
-
-	midUsed := len([]rune(midContent))
-	midPad := cols - midUsed - 1
-	if midPad < 1 {
-		midPad = 1
-	}
-	midLine := midContent + strings.Repeat(" ", midPad) + "║"
-
-	botUsed := len([]rune(botBadge))
-	botPad := cols - botUsed - 2
-	if botPad < 1 {
-		botPad = 1
-	}
-	botLine := " ╚" + strings.Repeat("═", botPad) + botBadge
-
-	clamp := func(line string) string {
-		r := []rune(line)
-		if len(r) > cols {
-			return string(r[:cols])
+		// Breakpoint 3: Kindle Narrow / Keyboard open (< 58 cols)
+		cRamNarrow := (ramBlocks * 3) / totalBlocks
+		if cRamNarrow > 3 {
+			cRamNarrow = 3
 		}
-		return line
+		meterNarrow := strings.Repeat("▰", cRamNarrow) + strings.Repeat("▱", 3-cRamNarrow)
+		line1 = fmt.Sprintf(" ◢◤ ZEROTWO [002] · PISTIL · RAM: %s · %s", meterNarrow, truncateStr(displayModel, cols-38))
 	}
 
-	return fmt.Sprintf("%s\n%s\n%s\n", clamp(topLine), clamp(midLine), clamp(botLine))
+	line1Runes := []rune(line1)
+	if len(line1Runes) > cols {
+		line1 = string(line1Runes[:cols])
+	}
+
+	line2 := strings.Repeat("─", cols)
+	return fmt.Sprintf("%s\n%s\n", line1, line2)
 }
 
 // NeuralLinkEngagement renders the quick neural resonance banner before actions.
