@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"syscall"
 	"unsafe"
@@ -16,39 +17,71 @@ type winsize struct {
 	Ypixel uint16
 }
 
-// GetTerminalRows queries TIOCGWINSZ on stdout (fd 1), falls back to stderr (fd 2), then 25 rows.
+// GetTerminalRows queries $LINES, TIOCGWINSZ on stdout (fd 1), stderr (fd 2), /dev/tty, then 25 rows.
 func GetTerminalRows() int {
+	// 1. Check environment variable LINES (allows explicit override in scripts/kterm)
+	if linesStr := os.Getenv("LINES"); linesStr != "" {
+		if r, err := strconv.Atoi(linesStr); err == nil && r > 0 {
+			return r
+		}
+	}
+
 	var ws winsize
 
-	// 1. Check stdout
+	// 2. Check stdout
 	_, _, err := syscall.Syscall(syscall.SYS_IOCTL, uintptr(syscall.Stdout), uintptr(syscall.TIOCGWINSZ), uintptr(unsafe.Pointer(&ws))) // #nosec G103 -- ioctl TIOCGWINSZ query
 	if err == 0 && ws.Row > 0 {
 		return int(ws.Row)
 	}
 
-	// 2. Check stderr
+	// 3. Check stderr
 	_, _, err = syscall.Syscall(syscall.SYS_IOCTL, uintptr(syscall.Stderr), uintptr(syscall.TIOCGWINSZ), uintptr(unsafe.Pointer(&ws))) // #nosec G103 -- ioctl TIOCGWINSZ query
 	if err == 0 && ws.Row > 0 {
 		return int(ws.Row)
+	}
+
+	// 4. Check /dev/tty
+	if tty, err := os.Open("/dev/tty"); err == nil {
+		defer tty.Close()
+		_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, tty.Fd(), uintptr(syscall.TIOCGWINSZ), uintptr(unsafe.Pointer(&ws))) // #nosec G103
+		if errno == 0 && ws.Row > 0 {
+			return int(ws.Row)
+		}
 	}
 
 	return 25 // standard terminal fallback
 }
 
-// GetTerminalCols queries TIOCGWINSZ on stdout (fd 1), falls back to stderr (fd 2), then 80 columns.
+// GetTerminalCols queries $COLUMNS, TIOCGWINSZ on stdout (fd 1), stderr (fd 2), /dev/tty, then 80 columns.
 func GetTerminalCols() int {
+	// 1. Check environment variable COLUMNS (allows explicit override in scripts/kterm)
+	if colsStr := os.Getenv("COLUMNS"); colsStr != "" {
+		if c, err := strconv.Atoi(colsStr); err == nil && c > 0 {
+			return c
+		}
+	}
+
 	var ws winsize
 
-	// 1. Check stdout
+	// 2. Check stdout
 	_, _, err := syscall.Syscall(syscall.SYS_IOCTL, uintptr(syscall.Stdout), uintptr(syscall.TIOCGWINSZ), uintptr(unsafe.Pointer(&ws))) // #nosec G103 -- ioctl TIOCGWINSZ query
 	if err == 0 && ws.Col > 0 {
 		return int(ws.Col)
 	}
 
-	// 2. Check stderr
+	// 3. Check stderr
 	_, _, err = syscall.Syscall(syscall.SYS_IOCTL, uintptr(syscall.Stderr), uintptr(syscall.TIOCGWINSZ), uintptr(unsafe.Pointer(&ws))) // #nosec G103 -- ioctl TIOCGWINSZ query
 	if err == 0 && ws.Col > 0 {
 		return int(ws.Col)
+	}
+
+	// 4. Check /dev/tty
+	if tty, err := os.Open("/dev/tty"); err == nil {
+		defer tty.Close()
+		_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, tty.Fd(), uintptr(syscall.TIOCGWINSZ), uintptr(unsafe.Pointer(&ws))) // #nosec G103
+		if errno == 0 && ws.Col > 0 {
+			return int(ws.Col)
+		}
 	}
 
 	return 80 // standard terminal fallback

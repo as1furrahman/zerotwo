@@ -644,6 +644,32 @@ func hasWriteRedirection(seg string) bool {
 			continue
 		}
 		if r == '>' {
+			// Check if this redirection is strictly to /dev/null or descriptor dup (2>&1)
+			rem := string(runes[i+1:])
+			// handle >>
+			if strings.HasPrefix(rem, ">") {
+				rem = rem[1:]
+			}
+			// handle >&
+			if strings.HasPrefix(rem, "&") {
+				remTrim := strings.TrimSpace(rem[1:])
+				if strings.HasPrefix(remTrim, "1") || strings.HasPrefix(remTrim, "2") {
+					continue
+				}
+				if strings.HasPrefix(remTrim, "/dev/null") {
+					continue
+				}
+			}
+			remTrim := strings.TrimSpace(rem)
+			if strings.HasPrefix(remTrim, "/dev/null") {
+				afterDevNull := remTrim[len("/dev/null"):]
+				if len(afterDevNull) == 0 || unicode.IsSpace(rune(afterDevNull[0])) || afterDevNull[0] == ';' || afterDevNull[0] == '|' || afterDevNull[0] == '&' {
+					continue
+				}
+			}
+			if strings.HasPrefix(remTrim, "&1") || strings.HasPrefix(remTrim, "&2") {
+				continue
+			}
 			return true
 		}
 	}
@@ -683,6 +709,15 @@ func splitCommandChain(cmd string) []string {
 		}
 
 		if r == '&' {
+			// Do not split if & is part of redirection operator: >& or &>
+			if current.Len() > 0 && strings.HasSuffix(current.String(), ">") {
+				current.WriteRune(r)
+				continue
+			}
+			if i+1 < len(runes) && runes[i+1] == '>' {
+				current.WriteRune(r)
+				continue
+			}
 			if i+1 < len(runes) && runes[i+1] == '&' {
 				i++
 			}

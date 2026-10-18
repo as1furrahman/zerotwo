@@ -86,6 +86,8 @@ func (p *Policy) Authorize(req AuthorizationRequest) (Decision, ApprovalDetails,
 		return p.authorizeListDir(req, args)
 	case "get_system_status":
 		return p.authorizeSystemStatus(req)
+	case "read_clippings":
+		return p.authorizeReadClippings(req, args)
 	default:
 		// Unknown tool: fail closed by default
 		return DecisionDeny, ApprovalDetails{
@@ -717,7 +719,19 @@ func (p *Policy) authorizeFileRead(req AuthorizationRequest, args string) (Decis
 			rel, errRel := filepath.Rel(wsAbs, pathAbs)
 			if errRel != nil || strings.HasPrefix(rel, "..") {
 				// Reading outside workspace
-				if req.ContextTainted {
+				// Kindle local user partition (/mnt/us) is trusted on-device storage (KOReader, documents)
+				cleanPath := filepath.Clean(pathAbs)
+				if strings.HasPrefix(cleanPath, "/mnt/us/") || cleanPath == "/mnt/us" {
+					// Trusted local storage: allow clean read
+				} else if req.ContextTainted {
+					if req.AutoYes {
+						return DecisionAllow, ApprovalDetails{
+							Category:  CategoryReadOnlyLocal,
+							Action:    "read_file_outside_workspace",
+							Target:    targetPath,
+							DataScope: "file outside workspace read during tainted turn",
+						}, nil
+					}
 					return DecisionRequireApproval, ApprovalDetails{
 						Category:       CategoryReadOnlyLocal,
 						Action:         "read_file_outside_workspace",
@@ -784,6 +798,22 @@ func (p *Policy) authorizeSystemStatus(req AuthorizationRequest) (Decision, Appr
 		}
 	}
 	return DecisionAllow, ApprovalDetails{Category: CategoryReadOnlyLocal, Action: "get_system_status"}, nil
+}
+
+func (p *Policy) authorizeReadClippings(req AuthorizationRequest, args string) (Decision, ApprovalDetails, error) {
+	for _, ct := range req.ConfirmTools {
+		if ct == "read_clippings" {
+			if req.AutoYes && !req.ContextTainted {
+				return DecisionAllow, ApprovalDetails{Category: CategoryReadOnlyLocal, Action: "read_clippings"}, nil
+			}
+			return DecisionRequireApproval, ApprovalDetails{
+				Category:  CategoryReadOnlyLocal,
+				Action:    "read_clippings",
+				DataScope: "Kindle reading highlights and notes inspection",
+			}, nil
+		}
+	}
+	return DecisionAllow, ApprovalDetails{Category: CategoryReadOnlyLocal, Action: "read_clippings", DataScope: "Kindle reading highlights and notes inspection"}, nil
 }
 
 // AuthorizeShellCommand authorizes a single shell command string for standalone execution (e.g. -e assistant).

@@ -182,6 +182,11 @@ func (t *ReadFileTool) Run(argsJSON string) (string, error) {
 		if errWs == nil && errPath == nil {
 			rel, errRel := filepath.Rel(wsAbs, pathAbs)
 			if errRel != nil || strings.HasPrefix(rel, "..") {
+				// Kindle local user partition (/mnt/us) is trusted local on-device storage (KOReader, documents)
+				cleanPath := filepath.Clean(pathAbs)
+				if strings.HasPrefix(cleanPath, "/mnt/us/") || cleanPath == "/mnt/us" {
+					return TruncateOutput(string(data), t.maxOutput), nil
+				}
 				return NeutralizeAndWrapUntrusted("read_file("+args.Path+")", string(data), t.maxOutput), nil
 			}
 		}

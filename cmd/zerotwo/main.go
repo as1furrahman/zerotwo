@@ -40,9 +40,12 @@ func main() {
 		memPreview  = flag.Bool("memory-preview", false, "Print exact memory payload that would be sent to provider")
 		doLearn     = flag.Bool("learn", false, "Run interactive profile interview to build MEMORY.md")
 		autoYes     = flag.Bool("yes", false, "Auto-approve non-destructive tool/command confirmations")
+		autoYesY    = flag.Bool("y", false, "Auto-approve non-destructive tool/command confirmations (shorthand)")
 		noStream    = flag.Bool("no-stream", false, "Disable streaming mode")
 	)
 	flag.Parse()
+
+	effectiveAutoYes := *autoYes || *autoYesY
 
 	// 1. Load config
 	cfg, err := config.Load()
@@ -130,8 +133,8 @@ func main() {
 		ctx, cancel := createInterruptContext()
 		defer cancel()
 		policy := auth.NewPolicy()
-		authorizer := auth.NewShellAuthorizer(policy, cfg.Agent.Workspace, cfg.Tools.BlockedCommands, *autoYes)
-		assistant := shell.NewAssistant(client, authorizer, *autoYes)
+		authorizer := auth.NewShellAuthorizer(policy, cfg.Agent.Workspace, cfg.Tools.BlockedCommands, effectiveAutoYes)
+		assistant := shell.NewAssistant(client, authorizer, effectiveAutoYes)
 		code, err := assistant.Run(ctx, *shellAssist)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Shell assistant error: %v\n", err)
@@ -142,7 +145,7 @@ func main() {
 	// Build tool registry
 	registry := buildRegistry(cfg, mem)
 	sessions := session.NewManager(cfg.Agent.Workspace)
-	loop := agent.NewLoop(cfg, client, registry, sessions, mem, *autoYes)
+	loop := agent.NewLoop(cfg, client, registry, sessions, mem, effectiveAutoYes)
 
 	sess, err := sessions.Load(*sessionID)
 	if err != nil {

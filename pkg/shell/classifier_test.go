@@ -194,3 +194,36 @@ func FuzzTokenizingClassifier(f *testing.F) {
 		}
 	})
 }
+
+func TestDevNullRedirectionReadOnly(t *testing.T) {
+	classifier := NewTokenizingClassifier()
+	safeCommands := []string{
+		"ls /mnt/us/koreader 2>/dev/null",
+		"find /mnt/us -name '*clippings*' 2>/dev/null",
+		"tail -20 /mnt/us/koreader/crash.log 2>/dev/null",
+		"ls /mnt/us/documents > /dev/null",
+		"cat /proc/cpuinfo >/dev/null 2>&1",
+		"which koreader 2>&1",
+	}
+
+	for _, cmd := range safeCommands {
+		sev, reason := classifier.Classify(cmd)
+		if sev != SeverityReadOnly {
+			t.Errorf("expected SeverityReadOnly for %q, got %v (%s)", cmd, sev, reason)
+		}
+	}
+
+	destructiveCommands := []string{
+		"ls /mnt/us > /mnt/us/out.txt",
+		"echo foo >> /mnt/us/koreader/settings.lua",
+		"cat /dev/zero > /mnt/us/testfile",
+	}
+
+	for _, cmd := range destructiveCommands {
+		sev, _ := classifier.Classify(cmd)
+		if sev != SeverityDestructive {
+			t.Errorf("expected SeverityDestructive for file write %q, got %v", cmd, sev)
+		}
+	}
+}
+

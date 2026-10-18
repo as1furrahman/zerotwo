@@ -1,6 +1,9 @@
 package ui
 
 import (
+	"fmt"
+	"os"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -92,3 +95,50 @@ This is **bold** text and *italic* text and ` + "`inline_code`" + `.
 		t.Errorf("expected table or quote border, got: %s", out)
 	}
 }
+
+func TestNarrowTerminalKindle(t *testing.T) {
+	// Test simulated Kindle portrait columns: 50, 60, 70
+	widths := []int{45, 55, 60, 65, 72}
+	origCols := os.Getenv("COLUMNS")
+	defer func() {
+		if origCols != "" {
+			os.Setenv("COLUMNS", origCols)
+		} else {
+			os.Unsetenv("COLUMNS")
+		}
+	}()
+
+	for _, w := range widths {
+		os.Setenv("COLUMNS", fmt.Sprintf("%d", w))
+		banner := CyberdeckBanner("qwen/qwen3.8-27b", "sess-test", "/tmp", 4, 5)
+		if len(banner) == 0 {
+			t.Errorf("empty banner for cols=%d", w)
+		}
+		dock := CyberdeckDock()
+		if len(dock) == 0 {
+			t.Errorf("empty dock for cols=%d", w)
+		}
+		card := QuickhackCard("shell", "ls -la /mnt/us/koreader", "crash.log\nkoreader.sh")
+		if len(card) == 0 {
+			t.Errorf("empty card for cols=%d", w)
+		}
+		warn := DestructiveCyberwareWarning("rm -rf /mnt/us", "/mnt/us", "Data loss")
+		if len(warn) == 0 {
+			t.Errorf("empty warn for cols=%d", w)
+		}
+
+		table := "| Col A | Col B | Col C |\n| --- | --- | --- |\n| ExtremelyLongTextInCell1 | ExtremelyLongTextInCell2 | LongText3 |"
+		tableTerm := MarkdownToTerm(table)
+		lines := strings.Split(tableTerm, "\n")
+		for _, l := range lines {
+			// strip ansi codes roughly
+			clean := regexp.MustCompile(`\x1b\[[0-9;]*m`).ReplaceAllString(l, "")
+			// Allow small margin for multi-byte runes
+			runeCount := len([]rune(clean))
+			if runeCount > w+5 {
+				t.Errorf("table line exceeded col limit %d: len=%d line=%q", w, runeCount, clean)
+			}
+		}
+	}
+}
+
