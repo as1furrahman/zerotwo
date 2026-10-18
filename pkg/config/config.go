@@ -235,6 +235,9 @@ func Save(cfg *Config) error {
 }
 
 func CheckDirPermissions(path string, expected os.FileMode) bool {
+	if strings.HasPrefix(path, "/mnt/us") || strings.HasPrefix(path, "/mnt/base-us") {
+		return true // FAT32 / VFAT mounts do not support Unix permissions
+	}
 	info, err := os.Stat(path)
 	if err != nil {
 		return false
@@ -248,6 +251,9 @@ func CheckDirPermissions(path string, expected os.FileMode) bool {
 }
 
 func CheckFilePermissions(path string, expected os.FileMode) bool {
+	if strings.HasPrefix(path, "/mnt/us") || strings.HasPrefix(path, "/mnt/base-us") {
+		return true // FAT32 / VFAT mounts do not support Unix permissions
+	}
 	info, err := os.Stat(path)
 	if err != nil {
 		return false
