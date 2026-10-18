@@ -308,7 +308,7 @@ func main() {
 		if cfg.Provider.Stream {
 			tokenCb = func(token string) {
 				if firstToken {
-					fmt.Print("\n \033[1m▲▲ ZERO TWO\033[0m\n")
+					fmt.Print(" \033[1m▲▲ ZERO TWO\033[0m\n")
 					firstToken = false
 				}
 				fmt.Print(token)
@@ -328,11 +328,11 @@ func main() {
 		}
 
 		if !cfg.Provider.Stream {
-			fmt.Print("\n \033[1m▲▲ ZERO TWO\033[0m\n")
+			fmt.Print(" \033[1m▲▲ ZERO TWO\033[0m\n")
 			ui.RenderPaged(ui.MarkdownToTerm(response))
 			fmt.Println()
 		} else {
-			fmt.Print("\n\n")
+			fmt.Println()
 		}
 	}
 }
@@ -412,25 +412,18 @@ func handleClippingsExplorer(workspace string, scanner *bufio.Scanner, loop *age
 
 func printCyberdeckPalette() {
 	fmt.Print(`
- ▲▲ // CYBERDECK PALETTE /////////////////////////////////////////////
- 
- Deck Operations:
-   c, /c, /shards       — Access Kindle Reading Shards (My Clippings.txt)
-   x, /x, /export       — Compile active run into eBook Data Dump (HTML)
-   /status              — Telemetry: RAM, Model, Magma Reactor, Sockets
-   /clear               — Purge active neural context & session history
-   /reload              — Rebuild static prompt from memory & config
-   /memory              — View long-term neural memory (MEMORY.md)
-   /memory-preview      — Inspect exact payload sent to provider
-   exit, q, quit        — Jack out of cyberdeck
-
- CLI Arguments:
-   -m "prompt"          — Single-shot non-interactive neural query
-   -e "command task"    — Shell assistant mode: translate English to bash
-   -models              — Ping API endpoint & list active served models
-   -dry-run             — Preview complete request payload with masked keys
-   -yes                 — Bypass non-destructive quickhack confirmations
- /////////////////////////////////////////////////////////////////////
+ ▲▲ CYBERDECK PALETTE ────────────────────────────────────────────────
+ Deck Ops:
+   c, /shards       — Access Reading Shards (My Clippings.txt)
+   x, /export       — Compile active run into eBook Data Dump (HTML)
+   /status, /clear  — Telemetry / Purge neural context
+   /reload, /memory — Rebuild prompt / View MEMORY.md
+   q, exit          — Jack out of cyberdeck
+ Flags:
+   -m "prompt"      — Single-shot non-interactive neural query
+   -e "task"        — Shell assistant mode (translate English to bash)
+   -y, -yes         — Auto-approve non-destructive quickhacks
+ ─────────────────────────────────────────────────────────────────────
 `)
 }
 
