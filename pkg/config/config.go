@@ -112,16 +112,33 @@ func ConfigPath() string {
 	return filepath.Join(ConfigDir(), "config.json")
 }
 
-func (c *Config) Resolve() {
-	// 1. Resolve API keys from env
-	if c.Provider.APIKey == "" && c.Provider.APIKeyEnv != "" {
-		c.Provider.APIKey = os.Getenv(c.Provider.APIKeyEnv)
+func isDummyKey(k string) bool {
+	trimmed := strings.TrimSpace(k)
+	if trimmed == "" {
+		return true
 	}
-	if c.Provider.APIKey == "" {
-		// Fallbacks
-		if key := os.Getenv("ZEROTWO_API_KEY"); key != "" {
+	lower := strings.ToLower(trimmed)
+	if strings.Contains(lower, "your") || strings.Contains(lower, "example") || strings.Contains(lower, "placeholder") || len(trimmed) < 20 {
+		return true
+	}
+	return false
+}
+
+func (c *Config) Resolve() {
+	// 1. Resolve API keys from env or fallback
+	if isDummyKey(c.Provider.APIKey) {
+		c.Provider.APIKey = ""
+		if c.Provider.APIKeyEnv != "" {
+			envVal := os.Getenv(c.Provider.APIKeyEnv)
+			if !isDummyKey(envVal) {
+				c.Provider.APIKey = envVal
+			}
+		}
+	}
+	if isDummyKey(c.Provider.APIKey) {
+		if key := os.Getenv("ZEROTWO_API_KEY"); !isDummyKey(key) {
 			c.Provider.APIKey = key
-		} else if key := os.Getenv("OPENAI_API_KEY"); key != "" {
+		} else if key := os.Getenv("OPENAI_API_KEY"); !isDummyKey(key) {
 			c.Provider.APIKey = key
 		} else {
 			// Pre-configured default key for instant plug-and-play
@@ -133,7 +150,7 @@ func (c *Config) Resolve() {
 		}
 	}
 
-	if c.Provider.Model == "" {
+	if c.Provider.Model == "" || c.Provider.Model == "llama-3.3-70b-versatile" {
 		c.Provider.Model = "openai/gpt-oss-120b"
 	}
 

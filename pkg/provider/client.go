@@ -128,6 +128,7 @@ func NewClient(cfg *config.Config) (*Client, error) {
 		TLSHandshakeTimeout:   tlsTimeout,
 		ResponseHeaderTimeout: respHeaderTimeout,
 		TLSClientConfig:       tlsConfig,
+		ForceAttemptHTTP2:     true,
 		MaxIdleConns:          10,
 		IdleConnTimeout:       90 * time.Second,
 	}
@@ -221,6 +222,8 @@ func (c *Client) doRequest(ctx context.Context, req CompletionRequest, onToken T
 	}
 
 	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Accept", "application/json, text/event-stream")
+	httpReq.Header.Set("User-Agent", "ZeroTwo-Agent/1.0 (Linux; Termux)")
 	if c.apiKey != "" {
 		httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
 	}
