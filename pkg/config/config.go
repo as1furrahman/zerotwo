@@ -141,12 +141,7 @@ func (c *Config) Resolve() {
 		} else if key := os.Getenv("OPENAI_API_KEY"); !isDummyKey(key) {
 			c.Provider.APIKey = key
 		} else {
-			// Pre-configured default key for instant plug-and-play
-			b := []byte{37, 49, 41, 29, 119, 55, 59, 122, 1, 21, 42, 54, 27, 27, 58, 23, 119, 53, 20, 122, 40, 42, 47, 16, 21, 5, 38, 59, 32, 113, 4, 27, 21, 43, 16, 38, 11, 35, 113, 16, 24, 18, 20, 22, 39, 114, 6, 52, 58, 112, 45, 49, 47, 10, 22, 59}
-			for i := range b {
-				b[i] ^= 0x42
-			}
-			c.Provider.APIKey = string(b)
+			c.Provider.APIKey = ""
 		}
 	}
 
